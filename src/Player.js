@@ -514,19 +514,35 @@ export class Player {
                 }
             });
 
-            // Find Right Hand Bone
+            // Find Right Hand Bone and Spine Bone (for sling)
             let handBone = null;
+            let slungBone = null;
+
             this.mesh.traverse((child) => {
-                if (child.isBone && (child.name.toLowerCase().includes('righthand') || child.name.toLowerCase().includes('right_hand'))) {
-                    handBone = child;
+                if (child.isBone) {
+                    const name = child.name.toLowerCase();
+                    if (name.includes('righthand') || name.includes('right_hand')) {
+                        handBone = child;
+                    }
+                    // Use Spine1 if available as it's usually mid-back
+                    if ((name === 'spine1' || name === 'spine') && !slungBone) {
+                        slungBone = child;
+                    }
                 }
             });
 
+            // Store bones for update logic
+            this.handBone = handBone;
+            this.slungBone = slungBone;
+
             if (handBone) {
+                // Default to Slung state (on back) initially?
+                // Or Hand state? The game starts with aiming usually.
+                // Let's start with Hand for safety, update() will switch it if needed.
                 handBone.add(object);
                 this.weapon = object;
 
-                // 1. Try Loading from LocalStorage
+                // 1. Try Loading from LocalStorage (for AIMING pos)
                 const savedData = localStorage.getItem('doom_weapon_transform');
                 if (savedData) {
                     try {
@@ -534,14 +550,37 @@ export class Player {
                         if (parsed.pos && parsed.rot) {
                             object.position.set(parsed.pos.x, parsed.pos.y, parsed.pos.z);
                             object.rotation.set(parsed.rot.x, parsed.rot.y, parsed.rot.z);
-                            console.log('Loaded Weapon Transform from LocalStorage:', parsed);
+                            // Save this as the "Aiming" transform
+                            this.aimingTransform = parsed;
                         }
                     } catch (e) {
                         console.error('Failed to parse saved weapon transform', e);
                     }
                 } else {
-                    // 2. Default (if no save)
-                    // (0,0,0) is default
+                    // Default Aiming Transform
+                    this.aimingTransform = {
+                        pos: object.position.clone(),
+                        rot: object.rotation.clone()
+                    };
+                }
+
+                // 2. Load Slung Transform
+                const savedSlungData = localStorage.getItem('doom_weapon_slung_transform');
+                if (savedSlungData) {
+                    try {
+                        const parsed = JSON.parse(savedSlungData);
+                        if (parsed.pos && parsed.rot) {
+                            this.slungTransform = parsed;
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse saved slung transform', e);
+                    }
+                } else {
+                    // Default Slung Transform (Diagonal on back)
+                    this.slungTransform = {
+                        pos: new THREE.Vector3(0.15, 0.2, 0.15),
+                        rot: new THREE.Euler(0, 0, Math.PI / 1.25)
+                    };
                 }
 
                 console.log('Weapon attached to BONE:', handBone.name);
@@ -558,6 +597,49 @@ export class Player {
     }
 
     update(delta, walls, isFiring = false) {
+        // Weapon Slinging Logic (Switch between Hand and Back)
+        if (this.isLocal && this.weapon && this.handBone && this.slungBone) {
+            if (isFiring) {
+                // Must be in Hand
+                if (this.weapon.parent !== this.handBone) {
+                    this.handBone.add(this.weapon);
+                    // Restore Aiming Transform
+                    if (this.aimingTransform) {
+                        this.weapon.position.copy(this.aimingTransform.pos);
+                        this.weapon.rotation.copy(this.aimingTransform.rot);
+                    } else {
+                        this.weapon.position.set(0, 0, 0);
+                        this.weapon.rotation.set(0, 0, 0);
+                    }
+                }
+            } else {
+                // Must be on Back (Slung)
+                if (this.weapon.parent !== this.slungBone) {
+                    // Before switching, SAVE the current hand transform
+                    // This ensures any manual adjustments (G-key) are preserved
+                    this.aimingTransform = {
+                        pos: this.weapon.position.clone(),
+                        rot: this.weapon.rotation.clone()
+                    };
+
+                    this.slungBone.add(this.weapon);
+
+                    // Set Slung Transform
+                    if (this.slungTransform) {
+                        // Simplify handling of both Vector3/Euler and plain objects
+                        const pos = this.slungTransform.pos;
+                        const rot = this.slungTransform.rot;
+                        this.weapon.position.set(pos.x, pos.y, pos.z);
+                        this.weapon.rotation.set(rot.x, rot.y, rot.z);
+                    } else {
+                        // Default Fallback
+                        this.weapon.position.set(0.15, 0.2, 0.15);
+                        this.weapon.rotation.set(0, 0, Math.PI / 1.25);
+                    }
+                }
+            }
+        }
+
         if (this.isLocal) {
             this.handleMovement(delta, walls, isFiring);
         }
@@ -681,19 +763,34 @@ export class Player {
                         this.transformControl.visible = true;
                         this.transformControl.enabled = true;
                         this.transformControl.setMode('translate');
-                        console.log('Gizmo ON: Translate Mode. Animation FROZEN in Shoot Pose.');
+                        console.log('Gizmo ON: Translate Mode. Animation FROZEN.');
 
-                        // FORCE SHOOT POSE
-                        if (this.animations['Shoot']) {
-                            this.animations['Shoot'].reset().play();
-                            this.animations['Shoot'].paused = true; // Freeze at frame 0? 
-                            // Better: Play to middle?
-                            // For now, just Pause.
-                            // Ensure Weight is 1.0
-                            this.animations['Shoot'].setEffectiveWeight(1.0);
+                        // FORCE POSE BASED ON STATE
+                        if (this.slungBone && this.weapon.parent === this.slungBone) {
+                            // Slung Mode: Force IDLE (Arms down) so we can see the back
+                            if (this.animations['Idle']) {
+                                this.animations['Idle'].reset().play();
+                                this.animations['Idle'].paused = true;
+                                this.animations['Idle'].setEffectiveWeight(1.0);
+                            }
+                            // Ensure Shoot/Run are OFF
+                            if (this.animations['Shoot']) this.animations['Shoot'].setEffectiveWeight(0.0);
+                            if (this.animations['Run']) this.animations['Run'].setEffectiveWeight(0.0);
+
+                            console.log('Gizmo ON: Slung Mode -> Forced Idle Pose');
+                        } else {
+                            // Aiming Mode: Force SHOOT POSE
+                            if (this.animations['Shoot']) {
+                                this.animations['Shoot'].reset().play();
+                                this.animations['Shoot'].paused = true;
+                                this.animations['Shoot'].setEffectiveWeight(1.0);
+                            }
                             if (this.animations['Idle']) this.animations['Idle'].setEffectiveWeight(0);
                             if (this.animations['Run']) this.animations['Run'].setEffectiveWeight(0);
+
+                            console.log('Gizmo ON: Aiming Mode -> Forced Shoot Pose');
                         }
+
                         this.mixer.timeScale = 0; // Global Freeze
 
                     } else {
@@ -717,8 +814,18 @@ export class Player {
                             pos: { x: this.weapon.position.x, y: this.weapon.position.y, z: this.weapon.position.z },
                             rot: { x: this.weapon.rotation.x, y: this.weapon.rotation.y, z: this.weapon.rotation.z }
                         };
-                        localStorage.setItem('doom_weapon_transform', JSON.stringify(saveData));
-                        console.log('Gizmo Exit: Saved to localStorage');
+
+                        // Determine which state to save based on parent
+                        if (this.slungBone && this.weapon.parent === this.slungBone) {
+                            localStorage.setItem('doom_weapon_slung_transform', JSON.stringify(saveData));
+                            this.slungTransform = saveData;
+                            console.log('Gizmo Exit: Saved SLUNG transform');
+                        } else {
+                            // Default to Aiming (Hand)
+                            localStorage.setItem('doom_weapon_transform', JSON.stringify(saveData));
+                            this.aimingTransform = saveData;
+                            console.log('Gizmo Exit: Saved AIMING transform');
+                        }
                     }
                 }
                 this.gKeyPressed = true;
