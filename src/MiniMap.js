@@ -47,13 +47,13 @@ export class MiniMap {
         this.drawPlayer(playerPos, 'lime', true);
 
         // Draw Remote Players
+        // console.log('MiniMap: Remote Players keys:', Object.keys(this.game.remotePlayers)); // Debug
         for (const id in this.game.remotePlayers) {
             const p = this.game.remotePlayers[id];
-            // Remote player could be Player instance or Mesh depending on refactor stage
-            // We ensured updateRemotePlayer kept 'mesh' logic or 'Player' logic.
-            // Game.js createRemotePlayer now returns Player instance
-            if (p.mesh) {
+            if (p && p.mesh) {
                 this.drawPlayer(p.mesh.position, 'red', false);
+            } else {
+                // console.warn('MiniMap: Invalid remote player or mesh for ID:', id);
             }
         }
     }

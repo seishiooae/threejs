@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 
 export function createDebugOverlay() {
     const debugOverlay = document.createElement('div');
@@ -25,16 +26,28 @@ export function updateDebugOverlay(player) {
 
     if (!player) return;
 
-    let content = `Current Action: ${player.currentAction}<br>`;
+    let content = `<b style="color:white">Current Action: ${player.currentAction}</b><br>`;
     content += `State: ${player.state || 'N/A'}<br>`;
+
+    // Pointer Lock & Aim Status
+    const isLocked = player.controls ? player.controls.isLocked : false;
+    content += `PointerLock: <span style="color:${isLocked ? 'lime' : 'red'}">${isLocked}</span><br>`;
+
+    // Calculate Pitch for display
+    let pitch = 0;
+    if (player.camera) {
+        const dir = new THREE.Vector3();
+        player.camera.getWorldDirection(dir);
+        pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+    }
+    content += `Aim Pitch: ${pitch.toFixed(2)}<br>`;
 
     // Movement Flags
     const isMoving = player.moveForward || player.moveBackward || player.moveLeft || player.moveRight;
-    content += `Moving: ${isMoving} (F:${player.moveForward} B:${player.moveBackward} L:${player.moveLeft} R:${player.moveRight})<br>`;
+    content += `Moving: ${isMoving}<br>`;
     content += `Position: ${player.mesh.position.x.toFixed(2)}, ${player.mesh.position.z.toFixed(2)}<br>`;
 
     // Animation States
-    // animations is an object { Idle: Action, Run: Action ... }
     if (player.animations) {
         content += '<br>Animations:<br>';
         Object.keys(player.animations).forEach(key => {
@@ -42,7 +55,6 @@ export function updateDebugOverlay(player) {
             if (action) {
                 const weight = action.getEffectiveWeight().toFixed(2);
                 const running = action.isRunning();
-                const time = action.time.toFixed(2);
                 const paused = action.paused;
 
                 let color = 'white';
@@ -50,15 +62,11 @@ export function updateDebugOverlay(player) {
                 else if (weight > 0) color = 'orange';
                 else color = 'gray';
 
-                content += `<span style="color:${color}">${key}: W=${weight} R=${running} P=${paused} T=${time}</span><br>`;
+                content += `<span style="color:${color}">${key}: W=${weight} R=${running}${paused ? ' (P)' : ''}</span><br>`;
             }
         });
     }
 
-    // Mixer
-    if (player.mixer) {
-        content += `<br>Mixer Time: ${player.mixer.time.toFixed(2)}<br>`;
-    }
-
     debugOverlay.innerHTML = content;
 }
+

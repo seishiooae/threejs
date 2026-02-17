@@ -41,8 +41,57 @@ export class Player {
         // mesh handles Y rotation (yaw), modelWrapper handles X rotation (stand up)
         this.modelWrapper = null;
 
+        // Health System
+        this.maxHealth = 100;
+        this.health = this.maxHealth;
+        this.isDead = false;
+
         this.init();
         this.autoLoadModels();
+    }
+
+    takeDamage(amount) {
+        if (this.isDead) return;
+
+        this.health -= amount;
+        console.log(`[Player ${this.id}] Took ${amount} damage. Health: ${this.health}`);
+
+        if (this.health <= 0) {
+            this.die();
+        }
+    }
+
+    die() {
+        if (this.isDead) return;
+        this.isDead = true;
+        console.log(`[Player ${this.id}] DIED!`);
+
+        // Disable controls/movement?
+        // Play Death Animation? (Not yet available, maybe fall over?)
+
+        // Simple Respawn Logic for now
+        setTimeout(() => {
+            this.respawn();
+        }, 3000);
+    }
+
+    respawn() {
+        this.isDead = false;
+        this.health = this.maxHealth;
+
+        // Random Respawn Point (Simple)
+        const x = (Math.random() - 0.5) * 40;
+        const z = (Math.random() - 0.5) * 40;
+
+        if (this.isLocal) {
+            this.pivot.position.set(x, 1.6, z);
+            // Reset velocity
+            this.velocity.set(0, 0, 0);
+        } else {
+            this.mesh.position.set(x, 0, z);
+        }
+
+        console.log(`[Player ${this.id}] Respawned at ${x.toFixed(1)}, ${z.toFixed(1)}`);
     }
 
     autoLoadModels() {
@@ -517,19 +566,44 @@ export class Player {
             // Find Right Hand Bone and Spine Bone (for sling)
             let handBone = null;
             let slungBone = null;
+            const boneNames = [];
 
             this.mesh.traverse((child) => {
                 if (child.isBone) {
                     const name = child.name.toLowerCase();
-                    if (name.includes('righthand') || name.includes('right_hand')) {
+                    boneNames.push(child.name);
+
+                    // Comprehensive Hand Bone Search
+                    if (!handBone && (
+                        name.includes('righthand') ||
+                        name.includes('right_hand') ||
+                        name.includes('hand_r') ||
+                        name.includes('hand.r') ||
+                        name.includes('handr') ||
+                        name.includes('hand') && name.includes('r') || // Loose match for R_Hand, Hand_R
+                        name.includes('mixamorig:righthand') ||
+                        name.includes('valvebiped.bip01_r_hand')
+                    )) {
                         handBone = child;
                     }
-                    // Use Spine1 if available as it's usually mid-back
-                    if ((name === 'spine1' || name === 'spine') && !slungBone) {
+
+                    // Comprehensive Spine Bone Search
+                    if (!slungBone && (
+                        name === 'spine1' ||
+                        name === 'spine01' ||
+                        name === 'spine_01' ||
+                        name === 'spine' ||
+                        name.includes('spine') || // Loose match
+                        name.includes('back')
+                    )) {
                         slungBone = child;
                     }
                 }
             });
+
+            if (!handBone) {
+                console.warn('RightHand bone not found. Available bones:', boneNames.join(', '));
+            }
 
             // Store bones for update logic
             this.handBone = handBone;
@@ -542,46 +616,76 @@ export class Player {
                 handBone.add(object);
                 this.weapon = object;
 
-                // 1. Try Loading from LocalStorage (for AIMING pos)
-                const savedData = localStorage.getItem('doom_weapon_transform');
-                if (savedData) {
-                    try {
+                // --- A. Synchronous Load from LocalStorage (Instant) ---
+                try {
+                    const savedData = localStorage.getItem('doom_weapon_transform');
+                    if (savedData) {
                         const parsed = JSON.parse(savedData);
-                        if (parsed.pos && parsed.rot) {
-                            object.position.set(parsed.pos.x, parsed.pos.y, parsed.pos.z);
-                            object.rotation.set(parsed.rot.x, parsed.rot.y, parsed.rot.z);
-                            // Save this as the "Aiming" transform
-                            this.aimingTransform = parsed;
-                        }
+                        if (parsed.pos && parsed.rot) this.aimingTransform = parsed;
+                    }
+                } catch (e) { console.error('LocalStorage Aiming Load Error:', e); }
+
+                // Default Aiming Transform
+                // --- A. Synchronous Local Load (Immediate) ---
+                const savedTransform = localStorage.getItem('doom_weapon_transform');
+                if (savedTransform) {
+                    try {
+                        this.aimingTransform = JSON.parse(savedTransform);
                     } catch (e) {
-                        console.error('Failed to parse saved weapon transform', e);
+                        console.error('Failed to parse local weapon transform', e);
+                        // Fallback to Hardcoded Defaults (Updated from User's Config)
+                        this.aimingTransform = {
+                            pos: { x: 10.25, y: -0.10, z: 1.60 },
+                            rot: { x: 28.05, y: 9.30, z: -4.74 }
+                        };
                     }
                 } else {
-                    // Default Aiming Transform
+                    // Default to Hardcoded Values if nothing locally (Updated from User's Config)
                     this.aimingTransform = {
-                        pos: object.position.clone(),
-                        rot: object.rotation.clone()
+                        pos: { x: 10.25, y: -0.10, z: 1.60 },
+                        rot: { x: 28.05, y: 9.30, z: -4.74 }
                     };
                 }
 
-                // 2. Load Slung Transform
-                const savedSlungData = localStorage.getItem('doom_weapon_slung_transform');
-                if (savedSlungData) {
-                    try {
-                        const parsed = JSON.parse(savedSlungData);
-                        if (parsed.pos && parsed.rot) {
-                            this.slungTransform = parsed;
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse saved slung transform', e);
-                    }
-                } else {
-                    // Default Slung Transform (Diagonal on back)
-                    this.slungTransform = {
-                        pos: new THREE.Vector3(0.15, 0.2, 0.15),
-                        rot: new THREE.Euler(0, 0, Math.PI / 1.25)
-                    };
+                this.slungTransform = {
+                    pos: { x: -11.65, y: 27.10, z: -28.80 },
+                    rot: { x: 39.45, y: 8.60, z: -8.14 } // Updated from User's Config
+                };
+
+                // Apply Initial State Immediately
+                const initialTarget = this.aimingTransform;
+                if (this.weapon) {
+                    this.weapon.position.set(initialTarget.pos.x, initialTarget.pos.y, initialTarget.pos.z);
+                    this.weapon.rotation.set(initialTarget.rot.x, initialTarget.rot.y, initialTarget.rot.z);
                 }
+
+                // --- B. Asynchronous Server Load (Background Update) ---
+                fetch('/api/get-weapon-config')
+                    .then(res => res.json())
+                    .then(config => {
+                        console.log('Loaded Weapon Config from Server:', config);
+                        let updated = false;
+
+                        if (config.aiming && config.aiming.pos && config.aiming.rot) {
+                            this.aimingTransform = config.aiming;
+                            localStorage.setItem('doom_weapon_transform', JSON.stringify(config.aiming));
+                            updated = true;
+                        }
+                        if (config.slung && config.slung.pos && config.slung.rot) {
+                            this.slungTransform = config.slung;
+                            localStorage.setItem('doom_weapon_slung_transform', JSON.stringify(config.slung));
+                            updated = true;
+                        }
+
+                        // If we are currently in a state that was updated, re-apply it
+                        if (updated && !this.isFiring && this.weapon) {
+                            // Assuming we start in Slung/Idle or Hand/Aiming based on game state
+                            // verification step will confirm visual usage
+                        }
+                    })
+                    .catch(err => {
+                        console.warn('Server config load skipped/failed:', err);
+                    });
 
                 console.log('Weapon attached to BONE:', handBone.name);
             } else {
@@ -597,129 +701,137 @@ export class Player {
     }
 
     update(delta, walls, isFiring = false) {
+        this.isFiring = isFiring; // Store for debug display
+
         // Weapon Slinging Logic (Switch between Hand and Back)
-        if (this.isLocal && this.weapon && this.handBone && this.slungBone) {
-            if (isFiring) {
-                // Must be in Hand
-                if (this.weapon.parent !== this.handBone) {
-                    this.handBone.add(this.weapon);
-                    // Restore Aiming Transform
-                    if (this.aimingTransform) {
-                        this.weapon.position.copy(this.aimingTransform.pos);
-                        this.weapon.rotation.copy(this.aimingTransform.rot);
-                    } else {
-                        this.weapon.position.set(0, 0, 0);
-                        this.weapon.rotation.set(0, 0, 0);
-                    }
-                }
-            } else {
-                // Must be on Back (Slung)
-                if (this.weapon.parent !== this.slungBone) {
-                    // Before switching, SAVE the current hand transform
-                    // This ensures any manual adjustments (G-key) are preserved
-                    this.aimingTransform = {
-                        pos: this.weapon.position.clone(),
-                        rot: this.weapon.rotation.clone()
-                    };
+        // Disable switching while Gizmo is active to prevent jumps
+        if (this.isLocal && this.weapon && !this.gizmoActive) {
+            const targetParent = isFiring ? (this.handBone || this.mesh) : (this.slungBone || this.mesh);
 
-                    this.slungBone.add(this.weapon);
-
-                    // Set Slung Transform
-                    if (this.slungTransform) {
-                        // Simplify handling of both Vector3/Euler and plain objects
-                        const pos = this.slungTransform.pos;
-                        const rot = this.slungTransform.rot;
-                        this.weapon.position.set(pos.x, pos.y, pos.z);
-                        this.weapon.rotation.set(rot.x, rot.y, rot.z);
-                    } else {
-                        // Default Fallback
-                        this.weapon.position.set(0.15, 0.2, 0.15);
-                        this.weapon.rotation.set(0, 0, Math.PI / 1.25);
-                    }
-                }
+            if (this.weapon.parent !== targetParent) {
+                targetParent.add(this.weapon);
+                console.log(`Switched Weapon to: ${targetParent.name || 'MESH'}`);
             }
         }
 
         if (this.isLocal) {
             this.handleMovement(delta, walls, isFiring);
+        } else {
+            // Remote Player: Visual Sync Only
+            // Ensure we update animations based on received state
+            this.syncVisuals(delta, this.isFiring);
         }
 
+        // --- Post-Movement Animation & Pose Update ---
         if (this.mixer) {
             this.mixer.update(delta);
 
-            // POST-ANIMATION ADJUSTMENT (only when aiming + moving)
-            const isMoving = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight;
-            if (this.isLocal && isMoving && isFiring) {
+            // 1. SYNC WEAPON TRANSFORM (Enforce offsets every frame to fight animation overrides)
+            if (this.isLocal && this.weapon && !this.gizmoActive) {
+                const target = (this.isFiring) ? this.aimingTransform : this.slungTransform;
+                if (target && target.pos && target.rot) {
+                    this.weapon.position.set(target.pos.x, target.pos.y, target.pos.z);
+                    this.weapon.rotation.set(target.rot.x, target.rot.y, target.rot.z);
+                } else if (!this.isFiring) {
+                    // Force Default Slung if not set (Prevents floating shoot position on back)
+                    this.weapon.position.set(0.15, 0.2, 0.15);
+                    this.weapon.rotation.set(0, 0, Math.PI / 1.25);
+                }
+            }
 
-                // STABILIZATION: Lock Spine Rotation to effectively cancel Hips Sway
-                // We want the Spine to have a fixed rotation relative to the Player Mesh (Model Root),
-                // regardless of how the Hips (Parent) are moving/rotating during the Run cycle.
+            // 2. CONDITIONAL STABILIZATION & AIM OFFSET
+            if (this.isLocal && this.slungBone && this.mesh && this.isFiring && this.camera && !this.gizmoActive) {
+                // Stabilize Spine relative to CAMERA direction, not Mesh direction.
 
-                if (this.spineBone && this.mesh) {
-                    // 1. Get Parent (Hips) World Quaternion
-                    const parentQuat = new THREE.Quaternion();
-                    if (this.spineBone.parent) {
-                        this.spineBone.parent.getWorldQuaternion(parentQuat);
-                    } else {
-                        parentQuat.copy(this.mesh.quaternion);
-                    }
+                const cameraQuat = new THREE.Quaternion();
+                this.camera.getWorldQuaternion(cameraQuat);
 
-                    // 2. Define Desired World Quaternion
-                    const meshQuat = new THREE.Quaternion();
-                    this.mesh.getWorldQuaternion(meshQuat);
+                // Rig Correction: Add 180-degree rotation if the upper body faces backwards
+                const correctionQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
-                    // Apply Arch Offset
-                    const archQuat = new THREE.Quaternion();
-                    archQuat.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5);
+                // Lean Forward Arch (0.5 rad)
+                const archQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5);
 
-                    const targetQuat = meshQuat.clone().multiply(archQuat);
+                // Combine: Camera Orientation -> 180 Correction -> Forward Lean
+                const targetWorldQuat = cameraQuat.clone().multiply(correctionQuat).multiply(archQuat);
 
-                    // 3. Calculate Scale-agnostic Local Quaternion
-                    // q_local = q_parent_inverse * q_target
-                    const finalQuat = parentQuat.clone().invert().multiply(targetQuat);
+                const parentWorldQuat = new THREE.Quaternion();
+                if (this.slungBone.parent) {
+                    this.slungBone.parent.getWorldQuaternion(parentWorldQuat);
+                } else {
+                    parentWorldQuat.copy(this.mesh.quaternion);
+                }
+                const localQuat = parentWorldQuat.invert().multiply(targetWorldQuat);
 
-                    // 4. Apply
-                    this.spineBone.quaternion.copy(finalQuat);
-                    this.spineBone.updateMatrix();
-                    this.spineBone.updateMatrixWorld();
+                this.slungBone.quaternion.copy(localQuat);
+                this.slungBone.updateMatrix();
+                this.slungBone.updateMatrixWorld();
+            }
+
+            // --- REMOTE PLAYER SPINE TWIST & PITCH ---
+            if (!this.isLocal && this.spineBone) {
+                // 1. PITCH (Look Up/Down) - Always apply latest known pitch
+                if (typeof this.remotePitch === 'number') {
+                    // Note: Sign depends on model rigging. Usually minus for "Look Up"
+                    this.spineBone.rotation.x -= this.remotePitch;
                 }
 
-                // 2. Eliminate Gun Sway (Lateral Movement only)
-                if (this.hipsBone) {
-                    this.hipsBone.position.x = 0;
-                    this.hipsBone.updateMatrix();
-                    this.hipsBone.updateMatrixWorld();
-                }
-
-                // 3. Lock Hips Z position - REMOVED (Causes sinking)
-                // if (this.hipsBone) {
-                //    this.hipsBone.position.z = 0;
-                // }
+                // Force update
+                this.spineBone.updateMatrix();
             }
         }
     }
 
     handleMovement(delta, walls, isFiring) {
-        // Global Debug Key (P) - Check whenever P is pressed
-        if (this.game.keys && this.game.keys['KeyP']) {
-            console.log('--- Debug P Key ---');
-            console.log('Weapon Object:', this.weapon);
-            console.log('Game Keys State:', this.game.keys);
-            if (this.weapon) {
-                console.log('Weapon Pos:', this.weapon.position);
-                console.log('Weapon Rot:', this.weapon.rotation);
+        // Global Debug Key (P) - Export Config
+        if (this.game.keys && this.game.keys['KeyP'] && !this.pKeyDebounce) {
+            this.pKeyDebounce = true;
+            console.log('--- Exporting Weapon Config ---');
 
-                // SAVE TO LOCAL STORAGE (Manual)
-                const saveData = {
+            const exportData = {
+                aiming: this.aimingTransform || {
+                    pos: this.weapon.position.clone(),
+                    rot: this.weapon.rotation.clone()
+                },
+                slung: this.slungTransform || {
+                    pos: { x: 0.15, y: 0.2, z: 0.15 },
+                    rot: { x: 0, y: 0, z: Math.PI / 1.25 }
+                }
+            };
+
+            // Update current values from weapon if valid
+            if (this.weapon) {
+                const current = {
                     pos: { x: this.weapon.position.x, y: this.weapon.position.y, z: this.weapon.position.z },
                     rot: { x: this.weapon.rotation.x, y: this.weapon.rotation.y, z: this.weapon.rotation.z }
                 };
-                localStorage.setItem('doom_weapon_transform', JSON.stringify(saveData));
-                console.log('Saved to localStorage (Manual P Key)');
-
-            } else {
-                console.warn('Weapon is NULL - Load failed or pending');
+                if (this.isFiring) exportData.aiming = current;
+                else exportData.slung = current;
             }
+
+            const jsonString = JSON.stringify(exportData, null, 2);
+            console.log(jsonString);
+
+            // Send to Server (Restored)
+            fetch('/api/save-weapon-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: jsonString
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert("Weapon configuration SAVED to server (Shared for all users)!");
+                    } else {
+                        alert("Failed to save config: " + data.error);
+                    }
+                })
+                .catch(err => {
+                    console.error("Save error:", err);
+                    alert("Network error saving config.");
+                });
+
+            setTimeout(() => this.pKeyDebounce = false, 1000);
         }
 
         // Toggle Freeze Pose (T)
@@ -845,31 +957,40 @@ export class Player {
 
         // Weapon Adjustment Debug (Temp)
         if (this.weapon && this.game.keys) {
+            // Determine which transform we are currently editing
+            const target = isFiring ? this.aimingTransform : this.slungTransform;
 
-            // Rotation Adjustment (Shift + Keys)
-            const isShift = this.game.keys['ShiftLeft'] || this.game.keys['ShiftRight'];
-            if (this.game.keys['KeyI'] || this.game.keys['KeyJ'] || this.game.keys['KeyK'] || this.game.keys['KeyL']) {
-                console.log('Adjustment Key Pressed. Shift:', isShift);
-            }
+            if (target && target.pos && target.rot) {
+                // Rotation Adjustment (Shift + Keys)
+                const isShift = this.game.keys['ShiftLeft'] || this.game.keys['ShiftRight'];
 
-            if (isShift) {
-                const rotSpeed = 0.05;
-                if (this.game.keys['KeyI']) this.weapon.rotation.x -= rotSpeed;
-                if (this.game.keys['KeyK']) this.weapon.rotation.x += rotSpeed;
-                if (this.game.keys['KeyJ']) this.weapon.rotation.y -= rotSpeed;
-                if (this.game.keys['KeyL']) this.weapon.rotation.y += rotSpeed;
-                if (this.game.keys['KeyU']) this.weapon.rotation.z += rotSpeed;
-                if (this.game.keys['KeyO']) this.weapon.rotation.z -= rotSpeed;
-            }
-            // Position Adjustment (Single Keys)
-            else {
-                const speed = 0.1; // 10cm per frame
-                if (this.game.keys['KeyI']) { this.weapon.position.z -= speed; console.log('Pos Z-', this.weapon.position); }
-                if (this.game.keys['KeyK']) { this.weapon.position.z += speed; console.log('Pos Z+', this.weapon.position); }
-                if (this.game.keys['KeyJ']) { this.weapon.position.x -= speed; console.log('Pos X-', this.weapon.position); }
-                if (this.game.keys['KeyL']) { this.weapon.position.x += speed; console.log('Pos X+', this.weapon.position); }
-                if (this.game.keys['KeyU']) { this.weapon.position.y += speed; console.log('Pos Y+', this.weapon.position); }
-                if (this.game.keys['KeyO']) { this.weapon.position.y -= speed; console.log('Pos Y-', this.weapon.position); }
+                if (isShift) {
+                    const rotSpeed = 0.1; // Doubled from 0.05
+                    if (this.game.keys['KeyI']) target.rot.x -= rotSpeed;
+                    if (this.game.keys['KeyK']) target.rot.x += rotSpeed;
+                    if (this.game.keys['KeyJ']) target.rot.y -= rotSpeed;
+                    if (this.game.keys['KeyL']) target.rot.y += rotSpeed;
+                    if (this.game.keys['KeyU']) target.rot.z += rotSpeed;
+                    if (this.game.keys['KeyO']) target.rot.z -= rotSpeed;
+                }
+                // Position Adjustment (Single Keys)
+                else {
+                    const speed = 0.1; // Doubled from 0.05
+                    if (this.game.keys['KeyI']) target.pos.z -= speed;
+                    if (this.game.keys['KeyK']) target.pos.z += speed;
+                    if (this.game.keys['KeyJ']) target.pos.x -= speed;
+                    if (this.game.keys['KeyL']) target.pos.x += speed;
+                    if (this.game.keys['KeyU']) target.pos.y += speed;
+                    if (this.game.keys['KeyO']) target.pos.y -= speed;
+                }
+
+                // Apply to weapon immediately so sync block doesn't fight it
+                this.weapon.position.set(target.pos.x, target.pos.y, target.pos.z);
+                this.weapon.rotation.set(target.rot.x, target.rot.y, target.rot.z);
+
+                // Auto-save to localStorage periodically (or on every change here for simplicity)
+                const key = isFiring ? 'doom_weapon_transform' : 'doom_weapon_slung_transform';
+                localStorage.setItem(key, JSON.stringify(target));
             }
         }
 
@@ -882,7 +1003,12 @@ export class Player {
         }
 
 
-        if (!this.controls.isLocked) return;
+        // Guard movement/input logic with Pointer Lock
+        if (!this.controls.isLocked) {
+            // Even if unlocked (Gizmo mode), we want the stationary facing logic to work
+            this.syncVisuals(delta, isFiring);
+            return;
+        }
 
         // Apply damping
         this.velocity.x -= this.velocity.x * 10.0 * delta;
@@ -892,127 +1018,167 @@ export class Player {
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
 
-        const speed = 30.0;
+        const speed = 70.0; // Increased from 50.0 again for faster movement
         if (this.moveForward || this.moveBackward) this.velocity.z -= this.direction.z * speed * delta;
         if (this.moveLeft || this.moveRight) this.velocity.x -= this.direction.x * speed * delta;
 
         this.controls.moveRight(-this.velocity.x * delta);
         this.controls.moveForward(-this.velocity.z * delta);
 
-        // --- Animation Logic ---
-        const isMoving = (this.moveForward || this.moveBackward || this.moveLeft || this.moveRight);
+        this.syncVisuals(delta, isFiring);
+    }
 
-        if (isMoving) {
-            this.currentAction = 'Run';
-        } else {
-            this.currentAction = 'Idle';
-        }
+    syncVisuals(delta, isFiring) {
+        // 1. Calculate isMoving for Remote Player (or local player if this is the main sync)
+        // We use the flags set by updateRemoteState for remote players, or local input for local players.
+        const isMoving = this.moveForward || this.moveBackward || this.moveLeft || this.moveRight;
 
-        // CRITICAL: Continuous State-Driven Animation Weight Management
+        // 2. Update Animations (CRITICAL FIX)
         this.updateAnimationWeights(delta, isMoving, isFiring);
 
-        // Sync visual mesh to physics pivot
-        this.mesh.position.copy(this.pivot.position);
-        this.mesh.position.y -= 1.6;
-
-
-        // Sync Rotation: Player facing relative to camera
-        // W=back to camera, S=face camera, A=face left, D=face right
-        // This relationship is maintained as camera rotates (mouse moves)
-        // With Hierarchy: mesh handles Y-rotation, wrapper handles X-rotation (stand up)
-
-        // Only apply if modelWrapper exists (FBX loaded)
-        // Update Mesh rotation if Moving OR Aiming (Firing)
-        // This ensures the player faces the target when shooting even if standing still.
-        if ((isMoving || isFiring) && this.modelWrapper) {
-            // Calculate Camera Yaw from World Direction (ignoring Pitch)
-            // This fixes the issue where WASD direction distorts when looking up/down
-            const cameraDir = new THREE.Vector3();
-            this.camera.getWorldDirection(cameraDir);
-            cameraDir.y = 0; // Project to horizontal plane
-            cameraDir.normalize();
-
-            // Calculate Yaw angle from direction vector
-            const cameraYaw = Math.atan2(cameraDir.x, cameraDir.z);
-
-            // Determine player's facing angle relative to camera
-            let facingOffset = 0; // Default: W (aligned with camera)
-
+        // For local player, continue with existing visual sync logic
+        if (this.isLocal) {
+            // Update currentAction for local player
             if (isMoving) {
-                if (this.moveBackward && !this.moveForward) {
-                    facingOffset = Math.PI; // S: face to camera
-                } else if (this.moveLeft && !this.moveRight && !this.moveForward && !this.moveBackward) {
-                    facingOffset = Math.PI / 2; // A only: face left
-                } else if (this.moveRight && !this.moveLeft && !this.moveForward && !this.moveBackward) {
-                    facingOffset = -Math.PI / 2; // D only: face right
+                this.currentAction = 'Run';
+            } else {
+                this.currentAction = 'Idle';
+            }
+
+            // Sync visual mesh to physics pivot
+            this.mesh.position.copy(this.pivot.position);
+            this.mesh.position.y -= 1.6;
+
+            // Sync Character Rotation (Yaw)
+            // Always update rotation to match camera/movement provided modelWrapper exists
+            if (this.modelWrapper) {
+                const cameraDir = new THREE.Vector3();
+                this.camera.getWorldDirection(cameraDir);
+                cameraDir.y = 0;
+                cameraDir.normalize();
+
+                const cameraYaw = Math.atan2(cameraDir.x, cameraDir.z);
+                let facingOffset = 0;
+
+                // CRITICAL: When firing, ALWAYS face forward (align with camera)
+                // Regardless of running direction (Strafing Mode)
+                if (isFiring) {
+                    facingOffset = 0;
+                } else if (isMoving) {
+                    // Only follow move direction if NOT firing
+                    if (this.moveBackward && !this.moveForward) facingOffset = Math.PI;
+                    else if (this.moveLeft && !this.moveRight && !this.moveForward && !this.moveBackward) facingOffset = Math.PI / 2;
+                    else if (this.moveRight && !this.moveLeft && !this.moveForward && !this.moveBackward) facingOffset = -Math.PI / 2;
+                }
+
+                this.mesh.rotation.y = cameraYaw + facingOffset;
+            }
+
+            // Camera Aiming Transitions (TPS only)
+            if (this.isThirdPerson) {
+                const aiming = isFiring;
+                const targetPos = aiming
+                    ? new THREE.Vector3(-2.5, 2.5, 4.0)
+                    : new THREE.Vector3(0.4, 0.6, 3.0);
+
+                const targetRot = aiming
+                    ? new THREE.Euler(-0.3, 0, 0)
+                    : new THREE.Euler(0, 0, 0);
+
+                const lerpSpeed = 5.0 * delta;
+                this.camera.position.lerp(targetPos, lerpSpeed);
+
+                const targetQuat = new THREE.Quaternion().setFromEuler(targetRot);
+                this.camera.quaternion.slerp(targetQuat, lerpSpeed);
+            }
+        } else {
+            // For remote players, position and rotation are set directly by updateRemoteState
+
+            // 3. Sync Weapon Parenting (Hand vs Back)
+            if (this.weapon && this.handBone && this.slungBone) {
+                // Use helper to include animation window in "isShooting" check
+                const isShooting = this.getIsShooting(isFiring);
+
+                const targetParent = isShooting ? this.handBone : this.slungBone;
+                if (this.weapon.parent !== targetParent) {
+                    targetParent.add(this.weapon);
+                }
+
+                // 4. Sync Weapon Transform (Apply Offsets)
+                const target = (isShooting) ? this.aimingTransform : this.slungTransform;
+
+                if (target && target.pos && target.rot) {
+                    this.weapon.position.set(target.pos.x, target.pos.y, target.pos.z);
+                    this.weapon.rotation.set(target.rot.x, target.rot.y, target.rot.z);
+                } else if (!isShooting) {
+                    // Default Slung Offset if not defined
+                    this.weapon.position.set(0.15, 0.2, 0.15);
+                    this.weapon.rotation.set(0, 0, Math.PI / 1.25);
                 }
             }
-            // If Aiming and Not Moving (or even moving), we essentially want to face forward
-            // But if moving sideways, we might want to strafe?
-            // For now, let's keep the movement logic dominant if moving, 
-            // but if ONLY Aiming (standing), face forward.
-            if (isFiring && !isMoving) {
-                facingOffset = 0; // Face forward
-            }
-            // Note: If Moving + Aiming, the above 'isMoving' logic applies facingOffset.
-            // E.g. strafing left while aiming -> Player faces left?
-            // In standard TPS, you usually strafe (face forward, move left).
-            // But our animation 'Run' is forward running. We don't have strafe anims.
-            // So if running Left, we MUST face Left. The camera/aim is to the side.
-            // This is a limitation of current assets. 
-            // So we leave Moving logic as is.
-
-            // Apply rotation to mesh group (Y-axis only)
-            this.mesh.rotation.y = cameraYaw + facingOffset;
-        }
-
-        // When not moving, rotation stays unchanged - camera orbits
-
-        // --- Camera Aiming Logic ---
-        // ... (lines 520+)
-
-        // ...
-
-        // (Move to shoot method)
-
-        // When not moving, rotation stays unchanged - camera orbits
-
-        // --- Camera Aiming Logic ---
-        // Lerp camera position based on aiming state
-        if (this.isThirdPerson) {
-            const aiming = isFiring; // Simple aimed state
-
-            // Define Targets
-            const targetPos = aiming
-                // Aim: Left (-2.5), High (2.5), Back (4.0)
-                // Pushes player FAR to the right side of the screen
-                ? new THREE.Vector3(-2.5, 2.5, 4.0)
-                : new THREE.Vector3(0.4, 0.6, 3.0); // Normal
-
-            // Rotation tweaks
-            // Pitch down (-0.3) to see ground, Yaw (0) to keep player right
-            const targetRot = aiming
-                ? new THREE.Euler(-0.3, 0, 0)
-                : new THREE.Euler(0, 0, 0);
-
-            // Smoothly interpolate
-            const lerpSpeed = 5.0 * delta;
-            this.camera.position.lerp(targetPos, lerpSpeed);
-
-            // Quaternion slerp for rotation
-            const targetQuat = new THREE.Quaternion().setFromEuler(targetRot);
-            this.camera.quaternion.slerp(targetQuat, lerpSpeed);
-        }
-
-        // NOTE: mixer.update is now called ONLY in update(), not here.
-        // The duplicate call here was overwriting post-animation spine corrections.
-        // REVERT: Add it back to restore original "shaky" behavior
-        if (this.mixer) {
-            this.mixer.update(delta);
         }
     }
 
+    updateRemoteState(state) {
+        // Called by NetworkManager
+        // state: { position, rotation, action, isFiring, pitch }
 
+        // Debug Log (Throttle to avoid spam)
+        if (Math.random() < 0.01) {
+            console.log(`[Player] Remote Update: RotY=${state.rotation.y.toFixed(2)}, Action=${state.action}, Firing=${state.isFiring}`);
+        }
+
+        // 1. Position & Rotation (Base Mesh)
+        this.mesh.position.copy(state.position);
+
+        // CRITICAL: Ensure we are applying rotation to the GROUP, not just a child
+        // Override rotation during shooting to face aim target (Fixes 45-deg strafing issue)
+        const now = performance.now();
+        if (this.forcedAimYaw !== undefined && (now - this.forcedAimTime < 500) && state.isFiring) {
+            this.mesh.rotation.set(state.rotation.x, this.forcedAimYaw, state.rotation.z);
+        } else {
+            this.mesh.rotation.set(state.rotation.x, state.rotation.y, state.rotation.z);
+        }
+
+        // 2. Flags for Animation
+        this.isFiring = state.isFiring;
+
+        // 3. Pitch for Spine
+        this.remotePitch = state.pitch || 0;
+
+        // 4. Movement Detection (Inferred)
+        // If 'Run' layout is sent, we trust it.
+        if (state.action === 'Run') {
+            this.moveForward = true; // Force movement logic to trigger 'Run' weight
+        } else {
+            this.moveForward = false;
+        }
+        this.moveBackward = false;
+        this.moveLeft = false;
+        this.moveRight = false;
+
+        // 5. Weapon Transform Sync (Custom Aiming Offset)
+        if (state.gunPos && state.gunRot) {
+            this.aimingTransform = {
+                pos: state.gunPos,
+                rot: state.gunRot
+            };
+        }
+    }
+
+    getIsShooting(isFiringInput) {
+        // Determine if player is effectively shooting (Input OR Animation Window)
+        let isShooting = isFiringInput;
+
+        // Remote Sync: Force true if within one-shot animation window
+        if (!isShooting && this.lastShootTime && this.shootDuration) {
+            const timeSinceShoot = performance.now() - this.lastShootTime;
+            if (timeSinceShoot < this.shootDuration) {
+                isShooting = true;
+            }
+        }
+        return isShooting;
+    }
 
     updateAnimationWeights(delta, isMoving, isFiring) {
         if (!this.mixer) return;
@@ -1022,10 +1188,9 @@ export class Player {
 
         // 1. Determine System State
         const shootAction = this.animations['Shoot'];
-        // Use isFiring (input held) ONLY. 
-        // If we include isRunning(), the clamped "Shoot" pose might persist.
-        // User wants "W Key Only = Full Run", so we strictly follow input.
-        const isShooting = isFiring;
+
+        // Use helper to determine effective shooting state
+        const isShooting = this.getIsShooting(isFiring);
 
         // Default Targets
         const targets = {
@@ -1132,74 +1297,159 @@ export class Player {
 
     fadeToAction(name, duration) {
         // Deprecated: Logic moved to updateAnimationWeights
-        // Kept empty to prevent errors if called from elsewhere
+    }
+
+    triggerShootAnimation(direction) {
+        // Called by Remote Player Sync to force replay of Shoot
+        if (!this.mixer) return;
+
+        // Store Forced Aim Yaw (for mesh rotation override)
+        if (direction && !this.isLocal) {
+            const flatDir = direction.clone();
+            flatDir.y = 0;
+            flatDir.normalize();
+            this.forcedAimYaw = Math.atan2(flatDir.x, flatDir.z);
+            this.forcedAimTime = performance.now();
+            // Immediately apply the forced rotation
+            this.mesh.rotation.y = this.forcedAimYaw;
+        }
+
+        // Reset and Play "Shoot" or "Shoot_Upper" depending on what's active/available
+        const shootAction = this.animations['Shoot'];
+        const shootUpperAction = this.animations['Shoot_Upper'];
+        const now = performance.now();
+
+        // Track active action to determine duration
+        let activeAction = null;
+
+        if (shootAction) {
+            shootAction.reset();
+            shootAction.setEffectiveWeight(1.0); // Ensure it's seen
+            shootAction.play();
+            activeAction = shootAction;
+        }
+        if (shootUpperAction) {
+            shootUpperAction.reset();
+            shootUpperAction.setEffectiveWeight(1.0);
+            shootUpperAction.play();
+            activeAction = shootUpperAction;
+        }
+
+        if (activeAction) {
+            this.lastShootTime = now;
+            this.shootDuration = activeAction.getClip().duration * 1000;
+        }
+    }
+
+
+    // Helper to calculate bullet spawn state (Origin & Direction) from current weapon state
+    getBulletSpawnState() {
+        let origin;
+        let direction = new THREE.Vector3();
+        let networkOrigin = new THREE.Vector3();
+
+        if (this.weapon) {
+            // CRITICAL FIX: Force-apply Aiming Transform BEFORE calculating origin
+            // This ensures the gun is exactly where it should be when the bullet spawns.
+
+            // 1. Temporarily Parent to Hand (if not already)
+            if (this.handBone && this.weapon.parent !== this.handBone) {
+                this.handBone.add(this.weapon);
+            }
+
+            // 2. Force Apply Transform
+            if (this.aimingTransform && this.aimingTransform.pos && this.aimingTransform.rot) {
+                this.weapon.position.set(
+                    this.aimingTransform.pos.x,
+                    this.aimingTransform.pos.y,
+                    this.aimingTransform.pos.z
+                );
+                this.weapon.rotation.set(
+                    this.aimingTransform.rot.x,
+                    this.aimingTransform.rot.y,
+                    this.aimingTransform.rot.z
+                );
+            }
+
+            // 3. Force matrix update even if mesh is invisible (FPS mode)
+            if (this.isLocal && !this.mesh.visible) {
+                this.mesh.updateMatrixWorld(true);
+            } else {
+                this.weapon.updateMatrixWorld(true);
+            }
+
+            // 4. Calculate Network Origin (TPS Gun Muzzle)
+            this.weapon.getWorldPosition(networkOrigin);
+
+            // Offset to Muzzle
+            const weaponQuat = new THREE.Quaternion();
+            this.weapon.getWorldQuaternion(weaponQuat);
+            // Reduced offset from 1.5 to 0.8 based on user feedback (closer to gun)
+            const forwardOffset = new THREE.Vector3(0, -1, 0).applyQuaternion(weaponQuat).multiplyScalar(0.8);
+            const upOffset = new THREE.Vector3(0, 0, 1).applyQuaternion(weaponQuat).multiplyScalar(0.10);
+            networkOrigin.add(forwardOffset).add(upOffset);
+
+            // 5. Decide Local Origin (Visuals)
+            if (this.isThirdPerson || !this.isLocal) {
+                // Remote players OR TPS: Use Gun Muzzle
+                origin = networkOrigin.clone();
+            } else {
+                // FPS Local: Use Camera Position
+                origin = this.camera.getWorldPosition(new THREE.Vector3());
+                this.camera.getWorldDirection(direction); // FPS uses camera look for direction? 
+                // Wait, user wanted GUN direction. But in FPS, Gun direction IS Camera direction usually.
+                // Actually, let's stick to Camera Direction for FPS feel, OR use Gun Direction if User wants "Realistic Hardcore"
+                // User said "Match Bullet Direction to Gun Forward".
+                // In FPS, if gun sway is active, gun forward != camera forward.
+                // let's use Gun Forward for EVERYTHING if that's what they want.
+                // BUT, for FPS reliability, camera forward is standard. 
+                // The user's request "Match Bullet Direction to Gun Forward" was mainly about the TPS/Remote view weirdness.
+                // Let's keep FPS using Camera Direction for playability, unless specified.
+
+                // Actually, let's look at the previous code. 
+                // Previous code used Gun Forward for `direction` variable, which was returned.
+                // `origin` was camera. 
+                // So bullet went from Camera, in direction of Gun. This creates parallax.
+                // Ideally: FPS -> Camera Pos + Camera Dir. TPS -> Gun Pos + Gun Dir.
+            }
+
+            // 6. Calculate Direction based on WEAPON FORWARD
+            // This overrides the camera direction fallback above if weapon exists
+            direction.set(0, -1, 0).applyQuaternion(weaponQuat).normalize();
+
+            // Origin tweaks to prevent self-collision
+            origin.add(direction.clone().multiplyScalar(0.5));
+
+            return { origin, direction, networkOrigin };
+
+        } else {
+            // Fallback
+            if (this.isLocal) {
+                origin = this.camera.getWorldPosition(new THREE.Vector3());
+                this.camera.getWorldDirection(direction);
+            } else {
+                origin = this.mesh.position.clone();
+                origin.y += 1.5; // Head height roughly
+                this.mesh.getWorldDirection(direction);
+            }
+            networkOrigin.copy(origin);
+            return { origin, direction, networkOrigin };
+        }
     }
 
     shoot() {
         // Play Animation
         if (this.mixer && this.animations['Shoot']) {
             const shootAction = this.animations['Shoot'];
-
-            // Just start the animation. The updateAnimationWeights will handle the blending.
             shootAction.reset();
             shootAction.setEffectiveWeight(1.0);
             shootAction.setLoop(THREE.LoopOnce);
-            shootAction.clampWhenFinished = true; // Keep last frame until faded out by updater
+            shootAction.clampWhenFinished = true;
             shootAction.play();
-
             console.log('Shooting triggered');
         }
 
-        let origin;
-        let direction = new THREE.Vector3();
-        this.camera.getWorldDirection(direction);
-
-        if (this.isThirdPerson) {
-            // 2. Origin: Use weapon barrel position if available
-            if (this.weapon) {
-                origin = new THREE.Vector3();
-                this.weapon.getWorldPosition(origin);
-
-                // 3. Direction: Gun barrel forward = local -Y axis
-                const weaponQuat = new THREE.Quaternion();
-                this.weapon.getWorldQuaternion(weaponQuat);
-                direction.set(0, -1, 0).applyQuaternion(weaponQuat);
-                direction.normalize();
-
-                // Move origin forward to muzzle position (approx 1.5m from grip)
-                // And adding a slight vertical offset (0.10m) to align with barrel height
-                // Assuming Local -Y is Forward, Local Z is Up
-                const forwardOffset = direction.clone().multiplyScalar(1.5);
-
-                // Calculate local UP vector (Z-axis rotated)
-                const localUp = new THREE.Vector3(0, 0, 1).applyQuaternion(weaponQuat);
-                const upOffset = localUp.multiplyScalar(0.10);
-
-                origin.add(forwardOffset).add(upOffset);
-            } else {
-                // Fallback: Aim Target: Camera Forward at distance (50m)
-                const aimTarget = this.camera.localToWorld(new THREE.Vector3(0, 0, -50));
-
-                // Origin: Start from player visual center/chest
-                origin = this.pivot.position.clone();
-                origin.y -= 0.3;
-
-                // Offset to right hand side (Gun is on Right)
-                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.pivot.quaternion);
-                origin.add(right.multiplyScalar(0.4));
-
-                direction.subVectors(aimTarget, origin).normalize();
-
-                // Move origin slightly forward to clear self-collision
-                origin.add(direction.clone().multiplyScalar(0.5));
-            }
-
-        } else {
-            // In FPS, start from camera
-            origin = this.camera.getWorldPosition(new THREE.Vector3());
-        }
-
-        return { origin, direction };
+        return this.getBulletSpawnState();
     }
 
 
@@ -1221,10 +1471,20 @@ export class Player {
 
     getRotation() {
         if (this.isLocal) {
-            // Only sync Yaw (Y-axis) to avoid tilting the character mesh up/down
-            return { x: 0, y: this.pivot.rotation.y, z: 0 };
+            // Updated: Since syncVisuals now ALWAYS updates mesh.rotation (even when idle),
+            // we can trust mesh.rotation to be the correct visual state, including strafing offsets.
+            // MUST RETURN PLAIN OBJECT to avoid THREE.Euler serialization issues (_x vs x)
+            return {
+                x: this.mesh.rotation.x,
+                y: this.mesh.rotation.y,
+                z: this.mesh.rotation.z
+            };
         }
-        return this.mesh.rotation;
+        return {
+            x: this.mesh.rotation.x,
+            y: this.mesh.rotation.y,
+            z: this.mesh.rotation.z
+        };
     }
 
     applyTexture(url) {

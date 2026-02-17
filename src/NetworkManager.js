@@ -3,7 +3,9 @@ import { io } from 'socket.io-client';
 export class NetworkManager {
     constructor(game) {
         this.game = game;
-        this.socket = io('http://localhost:3000'); // Connect to local server
+        // Connect to the same host as the web page, but on port 3000
+        const serverUrl = `http://${window.location.hostname}:3000`;
+        this.socket = io(serverUrl);
         this.id = null;
         this.remotePlayers = {}; // Map of id -> mesh/player object
 
@@ -44,7 +46,15 @@ export class NetworkManager {
         this.socket.on('playerShoot', (data) => {
             // data contains { id, origin, direction }
             if (data.id !== this.id) {
-                this.game.createRemoteBullet(data.origin, data.direction);
+                this.game.createRemoteBullet(data.id, data.origin, data.direction);
+            }
+        });
+
+        this.socket.on('playerHit', (data) => {
+            // data contains { targetId, damage, shooterId }
+            console.log('[Network] Received playerHit:', data);
+            if (this.game.handlePlayerHit) {
+                this.game.handlePlayerHit(data);
             }
         });
     }
@@ -56,6 +66,11 @@ export class NetworkManager {
 
     sendShoot(origin, direction) {
         this.socket.emit('shoot', { origin, direction });
+    }
+
+    sendHit(targetId, damage) {
+        // Send 'hit' event to server
+        this.socket.emit('hit', { targetId, damage });
     }
 
     addRemotePlayer(id, state) {
@@ -74,11 +89,12 @@ export class NetworkManager {
 
     updateRemotePlayer(id, state) {
         const player = this.remotePlayers[id];
-        if (player) {
-            // Smooth interpolation could be added here
+        if (player && player.updateRemoteState) {
+            player.updateRemoteState(state);
+        } else if (player) {
+            // Fallback if method not ready
             player.mesh.position.copy(state.position);
             player.mesh.rotation.set(state.rotation.x, state.rotation.y, state.rotation.z);
-
             if (player.setAnimationAction && state.action) {
                 player.setAnimationAction(state.action);
             }
