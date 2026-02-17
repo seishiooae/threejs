@@ -1309,6 +1309,9 @@ export class Player {
             flatDir.y = 0;
             flatDir.normalize();
             this.forcedAimYaw = Math.atan2(flatDir.x, flatDir.z);
+            // Compensate for weapon aimingTransform Y rotation offset (~5 degrees)
+            // so the gun muzzle visually aligns with the bullet trajectory
+            this.forcedAimYaw -= 0.35; // ~20 degrees CW to align gun muzzle with bullet
             this.forcedAimTime = performance.now();
             // Immediately apply the forced rotation
             this.mesh.rotation.y = this.forcedAimYaw;

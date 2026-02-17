@@ -327,7 +327,6 @@ export class Game {
         }
 
         // Use NETWORK values for both origin and direction (Ground Truth from Shooter)
-        // This ensures bullets hit the same target on all screens
         spawnOrigin = new THREE.Vector3(networkOrigin.x, networkOrigin.y, networkOrigin.z);
         spawnDirection = new THREE.Vector3(networkDirection.x, networkDirection.y, networkDirection.z);
 
