@@ -99,6 +99,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('playerShoot', { id: socket.id, origin: data.origin, direction: data.direction });
   });
 
+  socket.on('hit', (data) => {
+    // Broadcast damage to ALL clients so everyone can update health bars
+    io.emit('playerHit', { targetId: data.targetId, damage: data.damage, shooterId: socket.id });
+  });
+
   socket.on('disconnect', () => {
     console.log('Player disconnected:', socket.id);
     delete players[socket.id];

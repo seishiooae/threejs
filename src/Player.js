@@ -56,6 +56,9 @@ export class Player {
         this.health -= amount;
         console.log(`[Player ${this.id}] Took ${amount} damage. Health: ${this.health}`);
 
+        // Update 3D health bar (for remote players)
+        if (this.drawHealthBar) this.drawHealthBar();
+
         if (this.health <= 0) {
             this.die();
         }
@@ -174,6 +177,9 @@ export class Player {
             // Remote player setup
             this.createPlaceholderModel();
             this.game.scene.add(this.mesh);
+
+            // Create 3D floating health bar above remote player
+            this.createHealthBar();
         }
     }
 
@@ -259,7 +265,7 @@ export class Player {
 
             console.log('FBX Hierarchy Loaded: Wrapper X=-PI/2');
 
-            // 4. Force Gray Material on all meshes
+            // 4. Force Gray Material on all meshes + Assign userData.id for Raycaster hit detection
             object.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
@@ -270,8 +276,12 @@ export class Player {
                         metalness: 0.1,
                         side: THREE.DoubleSide
                     });
+                    // CRITICAL: Assign player ID for hit detection
+                    child.userData.id = this.id;
                 }
             });
+            // Also tag the mesh group itself
+            this.mesh.userData.id = this.id;
 
             this.mixer = new THREE.AnimationMixer(object);
 
@@ -427,6 +437,11 @@ export class Player {
             // Load Weapon (Rifle)
             this.loadWeapon();
 
+            // Restore Health Bar if it was cleared by mesh.clear()
+            if (this.healthBarSprite) {
+                this.mesh.add(this.healthBarSprite);
+            }
+
             // Call onComplete callback if provided (for auto-load chaining)
             if (onComplete) onComplete();
 
@@ -560,6 +575,8 @@ export class Player {
                         metalness: 0.8,
                         roughness: 0.2
                     });
+                    // Assign player ID for hit detection
+                    child.userData.id = this.id;
                 }
             });
 
@@ -1164,6 +1181,16 @@ export class Player {
                 rot: state.gunRot
             };
         }
+
+        // 6. Health Sync (for 3D floating health bar)
+        if (typeof state.health === 'number') {
+            const oldHealth = this.health;
+            this.health = state.health;
+            if (typeof state.maxHealth === 'number') this.maxHealth = state.maxHealth;
+            if (oldHealth !== this.health) {
+                this.drawHealthBar();
+            }
+        }
     }
 
     getIsShooting(isFiringInput) {
@@ -1351,16 +1378,47 @@ export class Player {
         let direction = new THREE.Vector3();
         let networkOrigin = new THREE.Vector3();
 
-        if (this.weapon) {
-            // CRITICAL FIX: Force-apply Aiming Transform BEFORE calculating origin
-            // This ensures the gun is exactly where it should be when the bullet spawns.
+        // FPS Local: Always use camera for reliable shooting regardless of model
+        if (this.isLocal && !this.isThirdPerson) {
+            origin = this.camera.getWorldPosition(new THREE.Vector3());
+            this.camera.getWorldDirection(direction);
+            direction.normalize();
 
-            // 1. Temporarily Parent to Hand (if not already)
+            // Calculate network origin from weapon if available (for remote visual)
+            if (this.weapon) {
+                if (this.handBone && this.weapon.parent !== this.handBone) {
+                    this.handBone.add(this.weapon);
+                }
+                if (this.aimingTransform && this.aimingTransform.pos && this.aimingTransform.rot) {
+                    this.weapon.position.set(
+                        this.aimingTransform.pos.x,
+                        this.aimingTransform.pos.y,
+                        this.aimingTransform.pos.z
+                    );
+                    this.weapon.rotation.set(
+                        this.aimingTransform.rot.x,
+                        this.aimingTransform.rot.y,
+                        this.aimingTransform.rot.z
+                    );
+                }
+                this.mesh.updateMatrixWorld(true);
+                this.weapon.getWorldPosition(networkOrigin);
+            } else {
+                networkOrigin.copy(origin);
+            }
+
+            // Offset to prevent self-collision
+            origin.add(direction.clone().multiplyScalar(0.5));
+
+            return { origin, direction, networkOrigin };
+        }
+
+        // TPS or Remote: Use weapon-based calculation
+        if (this.weapon) {
             if (this.handBone && this.weapon.parent !== this.handBone) {
                 this.handBone.add(this.weapon);
             }
 
-            // 2. Force Apply Transform
             if (this.aimingTransform && this.aimingTransform.pos && this.aimingTransform.rot) {
                 this.weapon.position.set(
                     this.aimingTransform.pos.x,
@@ -1374,55 +1432,19 @@ export class Player {
                 );
             }
 
-            // 3. Force matrix update even if mesh is invisible (FPS mode)
-            if (this.isLocal && !this.mesh.visible) {
-                this.mesh.updateMatrixWorld(true);
-            } else {
-                this.weapon.updateMatrixWorld(true);
-            }
-
-            // 4. Calculate Network Origin (TPS Gun Muzzle)
+            this.weapon.updateMatrixWorld(true);
             this.weapon.getWorldPosition(networkOrigin);
 
-            // Offset to Muzzle
             const weaponQuat = new THREE.Quaternion();
             this.weapon.getWorldQuaternion(weaponQuat);
-            // Reduced offset from 1.5 to 0.8 based on user feedback (closer to gun)
             const forwardOffset = new THREE.Vector3(0, -1, 0).applyQuaternion(weaponQuat).multiplyScalar(0.8);
             const upOffset = new THREE.Vector3(0, 0, 1).applyQuaternion(weaponQuat).multiplyScalar(0.10);
             networkOrigin.add(forwardOffset).add(upOffset);
 
-            // 5. Decide Local Origin (Visuals)
-            if (this.isThirdPerson || !this.isLocal) {
-                // Remote players OR TPS: Use Gun Muzzle
-                origin = networkOrigin.clone();
-            } else {
-                // FPS Local: Use Camera Position
-                origin = this.camera.getWorldPosition(new THREE.Vector3());
-                this.camera.getWorldDirection(direction); // FPS uses camera look for direction? 
-                // Wait, user wanted GUN direction. But in FPS, Gun direction IS Camera direction usually.
-                // Actually, let's stick to Camera Direction for FPS feel, OR use Gun Direction if User wants "Realistic Hardcore"
-                // User said "Match Bullet Direction to Gun Forward".
-                // In FPS, if gun sway is active, gun forward != camera forward.
-                // let's use Gun Forward for EVERYTHING if that's what they want.
-                // BUT, for FPS reliability, camera forward is standard. 
-                // The user's request "Match Bullet Direction to Gun Forward" was mainly about the TPS/Remote view weirdness.
-                // Let's keep FPS using Camera Direction for playability, unless specified.
-
-                // Actually, let's look at the previous code. 
-                // Previous code used Gun Forward for `direction` variable, which was returned.
-                // `origin` was camera. 
-                // So bullet went from Camera, in direction of Gun. This creates parallax.
-                // Ideally: FPS -> Camera Pos + Camera Dir. TPS -> Gun Pos + Gun Dir.
-            }
-
-            // 6. Calculate Direction based on WEAPON FORWARD
-            // This overrides the camera direction fallback above if weapon exists
+            origin = networkOrigin.clone();
             direction.set(0, -1, 0).applyQuaternion(weaponQuat).normalize();
 
-            // Origin tweaks to prevent self-collision
             origin.add(direction.clone().multiplyScalar(0.5));
-
             return { origin, direction, networkOrigin };
 
         } else {
@@ -1432,7 +1454,7 @@ export class Player {
                 this.camera.getWorldDirection(direction);
             } else {
                 origin = this.mesh.position.clone();
-                origin.y += 1.5; // Head height roughly
+                origin.y += 1.5;
                 this.mesh.getWorldDirection(direction);
             }
             networkOrigin.copy(origin);
@@ -1522,5 +1544,60 @@ export class Player {
 
         // Try standard TextureLoader first
         loader.load(url, onTextureLoad, undefined, onError);
+    }
+
+    createHealthBar() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 16;
+        this.healthBarCanvas = canvas;
+        this.healthBarCtx = canvas.getContext('2d');
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.minFilter = THREE.LinearFilter;
+        this.healthBarTexture = texture;
+
+        const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+        this.healthBarSprite = new THREE.Sprite(material);
+        this.healthBarSprite.scale.set(1.2, 0.15, 1);
+        this.healthBarSprite.position.set(0, 2.5, 0);
+        // CRITICAL: Disable raycasting on this sprite to prevent Raycaster errors
+        this.healthBarSprite.raycast = () => { };
+        this.mesh.add(this.healthBarSprite);
+
+        this.drawHealthBar();
+    }
+
+    drawHealthBar() {
+        const ctx = this.healthBarCtx;
+        if (!ctx) return;
+        const w = this.healthBarCanvas.width;
+        const h = this.healthBarCanvas.height;
+        const pct = Math.max(0, this.health / this.maxHealth);
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(0, 0, w, h);
+
+        // Health fill
+        if (pct > 0.5) {
+            ctx.fillStyle = '#44ff44';
+        } else if (pct > 0.25) {
+            ctx.fillStyle = '#ff8800';
+        } else {
+            ctx.fillStyle = '#ff2222';
+        }
+        ctx.fillRect(2, 2, (w - 4) * pct, h - 4);
+
+        // Border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0, 0, w, h);
+
+        if (this.healthBarTexture) {
+            this.healthBarTexture.needsUpdate = true;
+        }
     }
 }

@@ -252,7 +252,13 @@ export class Game {
 
                 if (targetId && this.networkManager) {
                     console.log(`[Game] Hit Player ${targetId}! Sending damage...`);
-                    this.networkManager.sendHit(targetId, 10); // Hardcoded 10 damage for now
+                    this.networkManager.sendHit(targetId, 10); // Send to server for target
+
+                    // ALSO apply damage locally to the remote player's 3D health bar
+                    // This gives immediate visual feedback on the shooter's screen
+                    if (this.remotePlayers[targetId]) {
+                        this.remotePlayers[targetId].takeDamage(10);
+                    }
                 }
 
             } else {
@@ -272,9 +278,11 @@ export class Game {
         console.log('[Game] Handle Player Hit:', data);
 
         if (this.player && this.networkManager && data.targetId === this.networkManager.id) {
-            // It's ME! I took damage.
+            // It's ME! I took damage from another player.
             this.player.takeDamage(data.damage);
         }
+        // NOTE: Remote player damage is applied directly in handleShoot() for immediate feedback.
+        // No need to apply again here to avoid double damage.
     }
 
     createRemotePlayer(id, state) {
@@ -356,8 +364,13 @@ export class Game {
             this.player.update(delta, this.level.getCollidables(), this.isMouseDown);
 
             if (this.isMouseDown && time > this.lastShootTime + 150) {
-                this.handleShoot();
-                this.lastShootTime = time;
+                try {
+                    this.handleShoot();
+                } catch (e) {
+                    console.error('[Game] handleShoot error:', e);
+                } finally {
+                    this.lastShootTime = time;
+                }
             }
 
             if (this.debugOverlayVisible) {
@@ -377,7 +390,9 @@ export class Game {
                     isFiring: this.isMouseDown, // Send firing state
                     pitch: pitch, // Send look pitch
                     gunPos: this.player.aimingTransform?.pos, // Send Custom Gun Offset
-                    gunRot: this.player.aimingTransform?.rot
+                    gunRot: this.player.aimingTransform?.rot,
+                    health: this.player.health,
+                    maxHealth: this.player.maxHealth
                 });
             }
 
@@ -389,6 +404,9 @@ export class Game {
             this.bullets.forEach(b => b.update(delta));
             this.bullets = this.bullets.filter(b => b.alive);
             if (this.miniMap) this.miniMap.update();
+
+            // Update HUD Health Bar
+            this.updateHUD();
         }
     }
 
@@ -397,6 +415,33 @@ export class Game {
         const overlay = document.getElementById('debug-overlay');
         if (overlay) {
             overlay.style.display = this.debugOverlayVisible ? 'block' : 'none';
+        }
+    }
+
+    updateHUD() {
+        try {
+            if (!this.player) return;
+            const hp = Math.max(0, this.player.health);
+            const maxHp = this.player.maxHealth;
+            const pct = (hp / maxHp) * 100;
+
+            const fill = document.getElementById('health-bar-fill');
+            const text = document.getElementById('health-text');
+            if (fill) {
+                fill.style.width = pct + '%';
+                if (pct > 50) {
+                    fill.style.background = 'linear-gradient(180deg, #44ff44 0%, #22aa22 100%)';
+                } else if (pct > 25) {
+                    fill.style.background = 'linear-gradient(180deg, #ff8800 0%, #cc6600 100%)';
+                } else {
+                    fill.style.background = 'linear-gradient(180deg, #ff2222 0%, #880000 100%)';
+                }
+            }
+            if (text) {
+                text.textContent = Math.ceil(hp);
+            }
+        } catch (e) {
+            // Silently fail to avoid crashing game loop
         }
     }
 }
