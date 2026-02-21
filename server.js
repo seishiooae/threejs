@@ -100,8 +100,23 @@ io.on('connection', (socket) => {
   });
 
   socket.on('hit', (data) => {
-    // Broadcast damage to ALL clients so everyone can update health bars
-    io.emit('playerHit', { targetId: data.targetId, damage: data.damage, shooterId: socket.id });
+    // Broadcast damage to ALL clients with direction for ragdoll
+    io.emit('playerHit', {
+      targetId: data.targetId,
+      damage: data.damage,
+      shooterId: socket.id,
+      direction: data.direction || null
+    });
+  });
+
+  socket.on('ragdollUpdate', (data) => {
+    // Relay ragdoll state to all other clients
+    socket.broadcast.emit('ragdollUpdate', { id: socket.id, ragdollState: data.ragdollState });
+  });
+
+  socket.on('ragdollEnd', (data) => {
+    // Notify all other clients that ragdoll has ended
+    socket.broadcast.emit('ragdollEnd', { id: socket.id });
   });
 
   socket.on('disconnect', () => {

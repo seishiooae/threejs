@@ -19,7 +19,7 @@ export class Player {
 
         this.camera = null;
         this.controls = null;
-        this.isThirdPerson = false; // Default View
+        this.isThirdPerson = true; // Default View changed to TPS
 
         // Physics/Movement
         this.velocity = new THREE.Vector3();
@@ -50,51 +50,355 @@ export class Player {
         this.autoLoadModels();
     }
 
-    takeDamage(amount) {
+    takeDamage(amount, direction) {
         if (this.isDead) return;
 
         this.health -= amount;
         console.log(`[Player ${this.id}] Took ${amount} damage. Health: ${this.health}`);
 
+        // Store last hit direction for ragdoll
+        this.lastHitDirection = direction || null;
+
         // Update 3D health bar (for remote players)
         if (this.drawHealthBar) this.drawHealthBar();
 
         if (this.health <= 0) {
-            this.die();
+            this.die(this.lastHitDirection);
         }
     }
 
-    die() {
+    die(impulseDirection) {
         if (this.isDead) return;
         this.isDead = true;
         console.log(`[Player ${this.id}] DIED!`);
 
-        // Disable controls/movement?
-        // Play Death Animation? (Not yet available, maybe fall over?)
+        // Freeze animations at current pose (don't revert to T-pose)
+        if (this.mixer) {
+            this.mixer.timeScale = 0;
+        }
 
-        // Simple Respawn Logic for now
+        // Initialize ragdoll timer for limp pose transition
+        this.ragdollTime = 0;
+        this.isRagdolling = true;
+
+        // Create ragdoll using PhysicsManager (mesh follows physics automatically)
+        if (this.game && this.game.physicsManager) {
+            this.game.physicsManager.createRagdoll(this, impulseDirection, this.game.scene);
+        }
+
+        // Hide weapon during ragdoll (attached to hand bone, looks odd)
+        if (this.weapon) {
+            this.weapon.visible = false;
+        }
+
+        // Hide health bar sprite during ragdoll
+        if (this.healthBarSprite) {
+            this.healthBarSprite.visible = false;
+        }
+
+        // Respawn after 10 seconds (longer time on ground)
         setTimeout(() => {
             this.respawn();
-        }, 3000);
+        }, 10000);
     }
 
     respawn() {
+        // Remove ragdoll
+        if (this.game && this.game.physicsManager) {
+            this.game.physicsManager.removeRagdoll(this.id);
+        }
+
+        // Notify other clients that ragdoll has ended
+        if (this.isLocal && this.game && this.game.networkManager) {
+            this.game.networkManager.sendRagdollEnd();
+        }
+
         this.isDead = false;
         this.health = this.maxHealth;
 
-        // Random Respawn Point (Simple)
+        // Restore mesh visibility and reset rotation
+        if (this.mesh) {
+            this.mesh.visible = true;
+            // Reset mesh rotation (physics may have tumbled it)
+            this.mesh.quaternion.identity();
+        }
+        if (this.weapon) {
+            this.weapon.visible = true;
+        }
+
+        // Restore health bar sprite
+        if (this.healthBarSprite) {
+            this.healthBarSprite.visible = true;
+        }
+
+        // Update health bar
+        if (this.drawHealthBar) this.drawHealthBar();
+
+        // Random Respawn Point
         const x = (Math.random() - 0.5) * 40;
         const z = (Math.random() - 0.5) * 40;
 
         if (this.isLocal) {
             this.pivot.position.set(x, 1.6, z);
-            // Reset velocity
             this.velocity.set(0, 0, 0);
         } else {
             this.mesh.position.set(x, 0, z);
         }
 
+        // Restart animations
+        if (this.mixer) {
+            this.mixer.timeScale = 1;
+            this.mixer.stopAllAction();
+            if (this.animations['Idle']) {
+                this.animations['Idle'].reset().play();
+                this.currentAction = 'Idle';
+            }
+        }
+
+        // Reset ragdoll state
+        this.isRagdolling = false;
+        this.ragdollTime = 0;
+        this.ragdollOriginalBones = null;
+
         console.log(`[Player ${this.id}] Respawned at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+    }
+
+    /**
+     * ラグドール中のボーン脱力アニメーション（IK＋重力追従型）
+     * 各関節が重力に引かれて自由に揺れ、地面（Y=0.15）に達すると体に沿って広がる
+     */
+    updateRagdollPose(delta) {
+        if (!this.isRagdolling) return;
+
+        this.ragdollTime += delta;
+
+        // 初回: 各ボーンの初期状態と階層情報を保存
+        if (!this.ragdollOriginalBones) {
+            this.ragdollOriginalBones = {};
+            this.ragdollPairs = [];
+
+            const addPair = (parent, child, weight, isLeg = false, tag = '') => {
+                if (parent && child) {
+                    this.ragdollOriginalBones[parent.name] = parent.quaternion.clone();
+                    // 子ボーンの初期ローカル位置から「基準となる向き（restDir）」を計算
+                    let restDir = child.position.clone();
+                    if (restDir.lengthSq() < 0.0001) restDir.set(0, 1, 0); // ゼロベクトル回避
+                    restDir.normalize();
+
+                    // 手足が一箇所にまとまらないよう、部位に応じた強制的な広がり方向（Sprawl Direction）を定義する
+                    let sprawlDir = new THREE.Vector3(0, 0, 0);
+
+                    // プレイヤー自身の向き（ローカル空間からワールド空間へのZ/X軸）を基準にする
+                    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.mesh.quaternion).normalize();
+                    const right = new THREE.Vector3(-1, 0, 0).applyQuaternion(this.mesh.quaternion).normalize();
+
+                    if (tag.includes('RightArm')) {
+                        sprawlDir.copy(right).add(forward.clone().multiplyScalar(0.7)).normalize();
+                    } else if (tag.includes('LeftArm')) {
+                        sprawlDir.copy(right).multiplyScalar(-1).add(forward.clone().multiplyScalar(0.7)).normalize();
+                    } else if (tag.includes('RightLeg')) {
+                        sprawlDir.copy(right).add(forward.clone().multiplyScalar(-0.7)).normalize();
+                    } else if (tag.includes('LeftLeg')) {
+                        sprawlDir.copy(right).multiplyScalar(-1).add(forward.clone().multiplyScalar(-0.7)).normalize();
+                    } else if (tag.includes('Head')) {
+                        sprawlDir.copy(forward).normalize();
+                    } else {
+                        // Spineなどは広がらない
+                        sprawlDir.set(0, 0, 0);
+                    }
+
+                    this.ragdollPairs.push({ parent, child, restDir, weight, isLeg, sprawlDir, tag });
+                }
+            };
+
+            const getFirstChild = (bone) => bone && bone.children.length > 0 ? bone.children[0] : null;
+
+            // 腕 (外側・前方に強制スプロール)
+            // 重みを下げて極端に曲がらないようにする
+            addPair(this.rightArmBone, this.rightForeArmBone, 0.4, false, 'RightArm');
+            addPair(this.leftArmBone, this.leftForeArmBone, 0.4, false, 'LeftArm');
+            addPair(this.rightForeArmBone, getFirstChild(this.rightForeArmBone), 0.5, false, 'RightArm');
+            addPair(this.leftForeArmBone, getFirstChild(this.leftForeArmBone), 0.5, false, 'LeftArm');
+
+            // 首・頭 (前方に強制スプロール)
+            // 首が折れすぎないように重みを大きく下げる
+            addPair(this.neckBone, this.headBone, 0.2, false, 'Head');
+            addPair(this.headBone, getFirstChild(this.headBone), 0.2, false, 'Head');
+
+            // 背骨 (スプロールなし)
+            // 腰から背中もグニャリと曲がりすぎないようにする
+            addPair(this.spineBone, this.spine1Bone, 0.1, true, 'Spine');
+            addPair(this.spine1Bone, this.spine2Bone, 0.1, true, 'Spine');
+            addPair(this.spine2Bone, this.neckBone, 0.1, true, 'Spine');
+
+            // 脚 (外側・後方に強制スプロール)
+            // 膝や股関節が極端に曲がりすぎないようにする
+            addPair(this.leftUpLegBone, this.leftLegBone, 0.3, true, 'LeftLeg');
+            addPair(this.rightUpLegBone, this.rightLegBone, 0.3, true, 'RightLeg');
+            addPair(this.leftLegBone, getFirstChild(this.leftLegBone), 0.4, true, 'LeftLeg');
+            addPair(this.rightLegBone, getFirstChild(this.rightLegBone), 0.4, true, 'RightLeg');
+
+            this.mesh.updateMatrixWorld(true);
+        }
+
+        this.mesh.updateMatrixWorld(true);
+
+        const gravityDir = new THREE.Vector3(0, -1, 0);
+        const floorY = 0.25; // カプセルボディ自体の沈み込みを考慮し、床の判定を少し高めに設定
+
+        for (const pair of this.ragdollPairs) {
+            const { parent, child, restDir, weight, isLeg, sprawlDir, tag } = pair;
+
+            // 腰と脚はカプセルが倒れ始める段階で少し遅れて、よりゆっくりと脱力する
+            // 腕(isLeg=false)は 0秒～0.5秒 で早めに脱力
+            // 腰・脚(isLeg=true)は 0.2秒～1.2秒 (1.0秒間) かけて緩やかに脱力
+            let t = 0;
+            if (isLeg) {
+                if (this.ragdollTime < 0.2) continue;
+                t = Math.max(0, (this.ragdollTime - 0.2) / 1.0);
+            } else {
+                t = Math.max(0, this.ragdollTime / 0.5);
+            }
+
+            const ease = 1.0 - Math.pow(1.0 - Math.min(1.0, t), 2);
+            const blendWeight = ease * weight;
+
+            const parentWorldPos = new THREE.Vector3();
+            parent.getWorldPosition(parentWorldPos);
+
+            const childWorldPos = new THREE.Vector3();
+            child.getWorldPosition(childWorldPos);
+
+            const boneLength = Math.max(0.1, parentWorldPos.distanceTo(childWorldPos));
+
+            // 基本の重力（下方向）に外側へ広がる力（Sprawl）を混ぜる
+            // 床に近づくにつれて広がる力を増やすことで、大の字などにバラけるようにする
+            let effectiveGravity = gravityDir.clone();
+            const heightFactor = Math.max(0, 1.0 - (childWorldPos.y / 1.5)); // 高さ1.5m以下で広がり始める
+            const spreadStrength = 3.5 * heightFactor * blendWeight;
+
+            if (sprawlDir.lengthSq() > 0) {
+                effectiveGravity.add(sprawlDir.clone().multiplyScalar(spreadStrength)).normalize();
+            }
+
+            // 現在の先端位置に計算した実効重力を加算
+            const gravityForce = 0.05 + blendWeight * 0.1;
+            let targetWorldPos = childWorldPos.clone().add(effectiveGravity.multiplyScalar(gravityForce));
+
+            // 長さの維持 Constraint
+            let fromParent = targetWorldPos.clone().sub(parentWorldPos);
+            if (fromParent.lengthSq() > 0.0001) {
+                fromParent.normalize().multiplyScalar(boneLength);
+                targetWorldPos.copy(parentWorldPos).add(fromParent);
+            }
+
+            // === 床ズレ処理はここでは一旦削除し、後段の四元数計算後に行う ===
+
+            // ワールド空間のターゲットを親空間(Parent's Parent)に変換
+            const targetLocalPos = targetWorldPos.clone();
+            const parentMatrixInv = new THREE.Matrix4();
+            if (parent.parent) {
+                parentMatrixInv.copy(parent.parent.matrixWorld).invert();
+            } else {
+                parentMatrixInv.copy(this.mesh.matrixWorld).invert();
+            }
+            targetLocalPos.applyMatrix4(parentMatrixInv);
+
+            const parentLocalPos = parent.position.clone();
+            const targetDirectionLocal = targetLocalPos.sub(parentLocalPos).normalize();
+
+            if (targetDirectionLocal.lengthSq() > 0.001) {
+                // 現在のローカルの骨の向き
+                const currentLocalDir = restDir.clone().applyQuaternion(parent.quaternion).normalize();
+
+                let dot = currentLocalDir.dot(targetDirectionLocal);
+                let deltaQuat = new THREE.Quaternion();
+
+                if (dot < -0.999) {
+                    let axis = new THREE.Vector3(1, 0, 0);
+                    if (Math.abs(currentLocalDir.x) > 0.9) axis.set(0, 1, 0);
+                    axis.cross(currentLocalDir).normalize();
+                    deltaQuat.setFromAxisAngle(axis, Math.PI);
+                } else {
+                    deltaQuat.setFromUnitVectors(currentLocalDir, targetDirectionLocal);
+                }
+
+                // 現在の回転（Roll等を含む）に差分を上乗せする
+                let targetQuat = deltaQuat.multiply(parent.quaternion);
+
+                // --- Angular Constraint (Joint Limits) ---
+                // 各ボーンが死亡時の姿勢（オリジナル）から過剰に曲がらないようにする
+                const originalLocalQuat = this.ragdollOriginalBones[parent.name];
+                if (originalLocalQuat) {
+                    const angle = originalLocalQuat.angleTo(targetQuat);
+
+                    // 部位ごとに最大許容角度（ラジアン）を設定
+                    let maxAngle = Math.PI / 4; // デフォルト45度
+                    if (tag.includes('Spine') || tag.includes('Head')) {
+                        maxAngle = 0; // 首や背骨は全く曲がらないように完全固定
+                    } else if (tag.includes('Leg')) {
+                        maxAngle = Math.PI / 6;  // 脚（膝・股関節）は 30度 まで
+                    } else if (tag.includes('Arm')) {
+                        maxAngle = Math.PI / 3;  // 腕・肘は 60度 まで
+                    }
+
+                    if (angle > maxAngle) {
+                        targetQuat = originalLocalQuat.clone().slerp(targetQuat, maxAngle / angle);
+                    }
+                }
+                // -----------------------------------------
+
+                const damping = 1.0 - Math.exp(-12.0 * delta);
+                parent.quaternion.slerp(targetQuat, damping * blendWeight);
+
+                // 行列更新して現在位置を仮確認
+                parent.updateMatrixWorld(true);
+
+                // === 床抜け防止（Floor Collision Override）===
+                const testChildWorldPos = new THREE.Vector3();
+                child.getWorldPosition(testChildWorldPos);
+
+                // 首や背骨が個別に床避けで回転すると角度制限（0度）を破壊して首が後ろに折れるため除外
+                if (tag.includes('Spine') || tag.includes('Head')) {
+                    continue;
+                }
+
+                // 頭以外の部位（手足）はそのまま床抜け防止を行う
+                let targetFloorY = floorY;
+
+                if (testChildWorldPos.y < targetFloorY) {
+                    // もし制限や重力の結果、床下にめり込んでしまった場合、
+                    // 強制的に上方向へ回転を補正する
+                    const currentParentWorldPos = new THREE.Vector3();
+                    parent.getWorldPosition(currentParentWorldPos);
+
+                    let correctedTarget = testChildWorldPos.clone();
+                    correctedTarget.y = targetFloorY; // 床の高さに戻す
+
+                    let currentDirWorld = testChildWorldPos.clone().sub(currentParentWorldPos).normalize();
+                    let adjustDirWorld = correctedTarget.sub(currentParentWorldPos).normalize();
+
+                    // ワールド空間での補正回転
+                    let floorDeltaQuat = new THREE.Quaternion().setFromUnitVectors(currentDirWorld, adjustDirWorld);
+
+                    // ワールド空間のDeltaQuatをローカル空間のDeltaQuatに変換
+                    // LocalDelta = ParentWorldInv * WorldDelta * ParentWorld
+                    let parentWorldRot = new THREE.Quaternion();
+                    if (parent.parent) {
+                        parent.parent.getWorldQuaternion(parentWorldRot);
+                    } else {
+                        this.mesh.getWorldQuaternion(parentWorldRot);
+                    }
+                    let parentWorldRotInv = parentWorldRot.clone().invert();
+
+                    let localDeltaQuat = parentWorldRotInv.multiply(floorDeltaQuat).multiply(parentWorldRot);
+
+                    // その補正を親ボーンに適用する
+                    parent.quaternion.premultiply(localDeltaQuat);
+                    parent.updateMatrixWorld(true);
+                }
+            }
+        }
     }
 
     autoLoadModels() {
@@ -119,8 +423,12 @@ export class Player {
             this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             this.pivot.add(this.camera); // Camera is child of pivot
 
-            // FPS Position (0,0,0 relative to pivot)
-            this.camera.position.set(0, 0, 0);
+            // Apply correct initial camera offset depending on view mode
+            if (this.isThirdPerson) {
+                this.camera.position.set(0.4, 0.6, 3.0);
+            } else {
+                this.camera.position.set(0, 0, 0);
+            }
 
             // Controls rotate/move the PIVOT, not the camera directly
             this.controls = new PointerLockControls(this.pivot, document.body);
@@ -130,6 +438,7 @@ export class Player {
             const gunMat = new THREE.MeshBasicMaterial({ color: 0x555555 });
             this.gun = new THREE.Mesh(gunGeo, gunMat);
             this.gun.position.set(0.2, -0.1, -0.3);
+            this.gun.visible = !this.isThirdPerson; // Hide in TPS initially
             this.camera.add(this.gun);
 
             // Flashlight - attached to camera
@@ -142,7 +451,7 @@ export class Player {
             // Add Default Placeholder for Local Player (so TPS sees something)
             this.createPlaceholderModel();
             this.game.scene.add(this.mesh);
-            this.mesh.visible = false; // Hide in FPS
+            this.mesh.visible = this.isThirdPerson; // Show in TPS, Hide in FPS
 
             // Transform Controls (Gizmo)
             this.transformControl = new TransformControls(this.camera, this.game.renderer.domElement);
@@ -295,17 +604,51 @@ export class Player {
                 object.traverse((child) => {
                     if (child.isBone) {
                         boneNames.push(child.name);
-                        // Cache Aim Bone
-                        if (child.name.toLowerCase().includes('rightarm') || child.name.toLowerCase().includes('right_arm')) {
+                        const name = child.name.toLowerCase();
+                        // Cache bones for aiming and ragdoll
+                        if ((name.includes('rightarm') || name.includes('right_arm')) && !name.includes('fore')) {
                             this.rightArmBone = child;
-                            console.log('Found Right Arm Bone for aiming:', child.name);
                         }
-                        if (child.name.toLowerCase().includes('spine')) {
+                        if ((name.includes('leftarm') || name.includes('left_arm')) && !name.includes('fore')) {
+                            this.leftArmBone = child;
+                        }
+                        if (name.includes('rightforearm') || name.includes('right_forearm')) {
+                            this.rightForeArmBone = child;
+                        }
+                        if (name.includes('leftforearm') || name.includes('left_forearm')) {
+                            this.leftForeArmBone = child;
+                        }
+                        // Spine bones (cache multiple levels)
+                        if (name === 'spine' || name === 'mixamorig:spine') {
                             this.spineBone = child;
                         }
-                        if (child.name.toLowerCase().includes('hips')) {
+                        if (name.includes('spine1') || name.includes('spine_1')) {
+                            this.spine1Bone = child;
+                        }
+                        if (name.includes('spine2') || name.includes('spine_2')) {
+                            this.spine2Bone = child;
+                        }
+                        if (name.includes('hips')) {
                             this.hipsBone = child;
-                            console.log('Found Hips Bone:', child.name);
+                        }
+                        if (name.includes('head') && !name.includes('headtop') && !name.includes('head_top')) {
+                            this.headBone = child;
+                        }
+                        if (name.includes('neck')) {
+                            this.neckBone = child;
+                        }
+                        // Leg bones for knee buckling
+                        if (name.includes('leftupleg') || name.includes('left_upleg') || name.includes('leftthigh')) {
+                            this.leftUpLegBone = child;
+                        }
+                        if (name.includes('rightupleg') || name.includes('right_upleg') || name.includes('rightthigh')) {
+                            this.rightUpLegBone = child;
+                        }
+                        if ((name.includes('leftleg') || name.includes('left_leg') || name.includes('leftshin')) && !name.includes('upleg')) {
+                            this.leftLegBone = child;
+                        }
+                        if ((name.includes('rightleg') || name.includes('right_leg') || name.includes('rightshin')) && !name.includes('upleg')) {
+                            this.rightLegBone = child;
                         }
                     }
                 });
@@ -718,6 +1061,9 @@ export class Player {
     }
 
     update(delta, walls, isFiring = false) {
+        // Skip all updates while dead (PhysicsManager controls mesh position)
+        if (this.isDead) return;
+
         this.isFiring = isFiring; // Store for debug display
 
         // Weapon Slinging Logic (Switch between Hand and Back)
@@ -735,7 +1081,6 @@ export class Player {
             this.handleMovement(delta, walls, isFiring);
         } else {
             // Remote Player: Visual Sync Only
-            // Ensure we update animations based on received state
             this.syncVisuals(delta, this.isFiring);
         }
 
@@ -1137,6 +1482,9 @@ export class Player {
     }
 
     updateRemoteState(state) {
+        // Skip updates while dead (PhysicsManager controls mesh position)
+        if (this.isDead) return;
+
         // Called by NetworkManager
         // state: { position, rotation, action, isFiring, pitch }
 

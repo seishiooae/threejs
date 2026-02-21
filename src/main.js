@@ -1,7 +1,7 @@
 import './style.css';
 import { Game } from './Game.js';
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   const game = new Game();
-  game.start();
+  await game.start();
 });

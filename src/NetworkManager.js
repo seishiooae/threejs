@@ -51,10 +51,42 @@ export class NetworkManager {
         });
 
         this.socket.on('playerHit', (data) => {
-            // data contains { targetId, damage, shooterId }
+            // data contains { targetId, damage, shooterId, direction }
             console.log('[Network] Received playerHit:', data);
             if (this.game.handlePlayerHit) {
                 this.game.handlePlayerHit(data);
+            }
+        });
+
+        this.socket.on('ragdollUpdate', (data) => {
+            // data: { id, ragdollState }
+            if (data.id !== this.id && this.game.physicsManager) {
+                const player = this.remotePlayers[data.id];
+                if (player) {
+                    // Stop animations during ragdoll
+                    if (player.mixer) player.mixer.stopAllAction();
+                    // Hide weapon during ragdoll
+                    if (player.weapon) player.weapon.visible = false;
+                    if (player.healthBarSprite) player.healthBarSprite.visible = false;
+                    // PhysicsManager moves the mesh with hips body
+                    this.game.physicsManager.updateRagdollFromState(data.id, data.ragdollState, this.game.scene, player.mesh);
+                }
+            }
+        });
+
+        this.socket.on('ragdollEnd', (data) => {
+            // data: { id }
+            if (data.id !== this.id && this.game.physicsManager) {
+                this.game.physicsManager.removeRagdoll(data.id);
+                const player = this.remotePlayers[data.id];
+                if (player) {
+                    if (player.mesh) {
+                        player.mesh.visible = true;
+                        player.mesh.quaternion.identity(); // Reset tumbled rotation
+                    }
+                    if (player.weapon) player.weapon.visible = true;
+                    if (player.healthBarSprite) player.healthBarSprite.visible = true;
+                }
             }
         });
     }
@@ -68,9 +100,18 @@ export class NetworkManager {
         this.socket.emit('shoot', { origin, direction });
     }
 
-    sendHit(targetId, damage) {
-        // Send 'hit' event to server
-        this.socket.emit('hit', { targetId, damage });
+    sendHit(targetId, damage, direction) {
+        // Send 'hit' event to server with direction for ragdoll
+        const dir = direction ? { x: direction.x, y: direction.y, z: direction.z } : null;
+        this.socket.emit('hit', { targetId, damage, direction: dir });
+    }
+
+    sendRagdollState(ragdollState) {
+        this.socket.emit('ragdollUpdate', { ragdollState });
+    }
+
+    sendRagdollEnd() {
+        this.socket.emit('ragdollEnd', {});
     }
 
     addRemotePlayer(id, state) {

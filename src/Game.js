@@ -6,6 +6,7 @@ import { Bullet } from './Bullet.js';
 import { MiniMap } from './MiniMap.js';
 import { SoundManager } from './SoundManager.js';
 import { updateDebugOverlay } from './DebugOverlay.js';
+import { PhysicsManager } from './PhysicsManager.js';
 
 export class Game {
     constructor() {
@@ -34,7 +35,7 @@ export class Game {
         // Initializer sequence called from constructor
     }
 
-    start() {
+    async start() {
         this.initThree();
         this.initWorld();
         this.initPlayer();
@@ -42,6 +43,11 @@ export class Game {
         this.initInputs();
         this.miniMap = new MiniMap(this);
         this.soundManager = new SoundManager();
+
+        // Initialize Rapier.js Physics
+        this.physicsManager = new PhysicsManager();
+        await this.physicsManager.init();
+
         this.animate();
     }
 
@@ -252,12 +258,11 @@ export class Game {
 
                 if (targetId && this.networkManager) {
                     console.log(`[Game] Hit Player ${targetId}! Sending damage...`);
-                    this.networkManager.sendHit(targetId, 10); // Send to server for target
+                    this.networkManager.sendHit(targetId, 10, direction); // Send direction for ragdoll
 
                     // ALSO apply damage locally to the remote player's 3D health bar
-                    // This gives immediate visual feedback on the shooter's screen
                     if (this.remotePlayers[targetId]) {
-                        this.remotePlayers[targetId].takeDamage(10);
+                        this.remotePlayers[targetId].takeDamage(10, direction);
                     }
                 }
 
@@ -274,15 +279,16 @@ export class Game {
 
     // Called by NetworkManager when 'playerHit' event is received
     handlePlayerHit(data) {
-        // data: { targetId, damage, shooterId }
+        // data: { targetId, damage, shooterId, direction }
         console.log('[Game] Handle Player Hit:', data);
+
+        const dir = data.direction ? new THREE.Vector3(data.direction.x, data.direction.y, data.direction.z) : null;
 
         if (this.player && this.networkManager && data.targetId === this.networkManager.id) {
             // It's ME! I took damage from another player.
-            this.player.takeDamage(data.damage);
+            this.player.takeDamage(data.damage, dir);
         }
         // NOTE: Remote player damage is applied directly in handleShoot() for immediate feedback.
-        // No need to apply again here to avoid double damage.
     }
 
     createRemotePlayer(id, state) {
@@ -363,7 +369,7 @@ export class Game {
         if (this.player) {
             this.player.update(delta, this.level.getCollidables(), this.isMouseDown);
 
-            if (this.isMouseDown && time > this.lastShootTime + 150) {
+            if (this.isMouseDown && !this.player.isDead && time > this.lastShootTime + 150) {
                 try {
                     this.handleShoot();
                 } catch (e) {
@@ -404,6 +410,27 @@ export class Game {
             this.bullets.forEach(b => b.update(delta));
             this.bullets = this.bullets.filter(b => b.alive);
             if (this.miniMap) this.miniMap.update();
+
+            // Update Physics (Ragdoll)
+            if (this.physicsManager) {
+                this.physicsManager.update(delta);
+
+                // Send ragdoll state over network if local player is ragdolling
+                if (this.networkManager && this.networkManager.id && this.player.isDead) {
+                    const ragdollState = this.physicsManager.getRagdollState(this.player.id);
+                    if (ragdollState) {
+                        this.networkManager.sendRagdollState(ragdollState);
+                    }
+                }
+            }
+
+            // Update ragdoll bone pose (limp animation)
+            if (this.player.isDead) {
+                this.player.updateRagdollPose(delta);
+            }
+            Object.values(this.remotePlayers).forEach(p => {
+                if (p.isDead) p.updateRagdollPose(delta);
+            });
 
             // Update HUD Health Bar
             this.updateHUD();
