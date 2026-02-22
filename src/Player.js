@@ -56,8 +56,14 @@ export class Player {
         this.health -= amount;
         console.log(`[Player ${this.id}] Took ${amount} damage. Health: ${this.health}`);
 
-        // Store last hit direction for ragdoll
+        // Store last hit direction and time for reactions/ragdoll
         this.lastHitDirection = direction || null;
+        this.lastHitTime = performance.now();
+
+        // Trigger the hit reaction from the very beginning
+        if (this.animations && this.animations['Hit']) {
+            this.animations['Hit'].reset().play();
+        }
 
         // Update 3D health bar (for remote players)
         if (this.drawHealthBar) this.drawHealthBar();
@@ -134,15 +140,13 @@ export class Player {
         // Update health bar
         if (this.drawHealthBar) this.drawHealthBar();
 
-        // Random Respawn Point
-        const x = (Math.random() - 0.5) * 40;
-        const z = (Math.random() - 0.5) * 40;
+        const spawnPos = this.getSpawnPosition();
 
         if (this.isLocal) {
-            this.pivot.position.set(x, 1.6, z);
+            this.pivot.position.set(spawnPos.x, 1.6, spawnPos.z);
             this.velocity.set(0, 0, 0);
         } else {
-            this.mesh.position.set(x, 0, z);
+            this.mesh.position.set(spawnPos.x, 0, spawnPos.z);
         }
 
         // Restart animations
@@ -409,16 +413,31 @@ export class Player {
             console.log('Auto-load: Main model loaded, loading additional assets...');
             // Load separate Idle animation (run.FBX only has run anim)
             this.loadExternalAnimation('/models/idle.FBX', 'Idle');
+
+            // Load HitReaction (Full Body)
+            this.loadExternalAnimation('/models/HitReaction.FBX', 'Hit');
+
             // Texture
             this.applyTexture('/models/skelton999.TGA');
         });
+    }
+
+    getSpawnPosition() {
+        // Map center is at roughly X=22.5, Z=22.5
+        // Add random offset between -5 and +5 to prevent overlap and spawn near the center
+        const offset = 10;
+        const x = 22.5 + (Math.random() - 0.5) * offset;
+        const z = 22.5 + (Math.random() - 0.5) * offset;
+        return { x, z };
     }
 
     init() {
         if (this.isLocal) {
             // Local player setup
             this.game.scene.add(this.pivot); // Pivot moves in the world
-            this.pivot.position.y = 1.6; // Initial eye height roughly
+
+            const spawnPos = this.getSpawnPosition();
+            this.pivot.position.set(spawnPos.x, 1.6, spawnPos.z); // Initial eye height roughly
 
             this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             this.pivot.add(this.camera); // Camera is child of pivot
@@ -795,7 +814,7 @@ export class Player {
 
     // loadDefaultAssets removed to revert to manual loading flow
 
-    createLegsClip(sourceClip, namePrefix) {
+    createLegsClip(sourceClip, newNamePrefix) {
         const legTracks = [];
         sourceClip.tracks.forEach((track) => {
             const boneName = track.name.split('.')[0];
@@ -814,7 +833,7 @@ export class Player {
         });
 
         if (legTracks.length > 0) {
-            const clipName = namePrefix + '_Legs';
+            const clipName = newNamePrefix + '_Legs';
             const legsClip = new THREE.AnimationClip(clipName, sourceClip.duration, legTracks);
             const action = this.mixer.clipAction(legsClip);
             action.setEffectiveWeight(0);
@@ -874,15 +893,22 @@ export class Player {
                 // Set loop mode based on animation type
                 const isOneShot = (name === 'Shoot' || name.toLowerCase().includes('shoot') ||
                     name.toLowerCase().includes('fire') || name.toLowerCase().includes('attack'));
-                if (isOneShot) {
+                const isHit = name.toLowerCase().includes('hit');
+
+                if (isOneShot || isHit) {
                     action.setLoop(THREE.LoopOnce);
-                    action.clampWhenFinished = true; // Hold pose after shooting
+                    if (isOneShot) action.clampWhenFinished = true; // Hold pose after shooting, but hits should finish cleanly
                 } else {
                     action.setLoop(THREE.LoopRepeat);
                 }
 
                 this.animations[name] = action;
                 console.log(`Loaded external animation: ${name} from ${fullUrl}`);
+
+                // Auto-generate Lower Body clips for Run and Idle
+                if (name === 'Idle' || name === 'Run') {
+                    this.createLegsClip(clip, name);
+                }
 
                 // If replacing the currently active action, auto-switch to the new one
                 if (name === this.currentAction) {
@@ -1567,39 +1593,40 @@ export class Player {
         // Use helper to determine effective shooting state
         const isShooting = this.getIsShooting(isFiring);
 
+        // Determine Hit Reaction State (Dynamic based on actual animation duration)
+        let isHitFlinching = false;
+        if (this.lastHitTime && this.animations['Hit']) {
+            const hitClipDurationMs = this.animations['Hit'].getClip().duration * 1000;
+            const timeSinceHit = performance.now() - this.lastHitTime;
+
+            // Allow the hit animation to play fully without getting cut off
+            if (timeSinceHit < hitClipDurationMs) {
+                isHitFlinching = true;
+            }
+        }
+
         // Default Targets
         const targets = {
             'Idle': 0,
-            'Idle_Upper': 0,
+            'Idle_Legs': 0, // Using the automatically generated Idle lower body
             'Run': 0,
             'Run_Legs': 0,
             'Shoot': 0,
-            'Shoot_Upper': 0 // Added for running-shooting
+            'Shoot_Upper': 0,
+            'Hit': 0
         };
 
         if (isShooting) {
             if (isMoving) {
                 // Moving + Shooting
-                // Use Upper Body Shoot + Running Legs
                 targets['Shoot_Upper'] = 1.0;
                 targets['Run_Legs'] = 1.0;
-
-                targets['Shoot'] = 0.0; // Disable Full Body Shoot
-                targets['Idle'] = 0.0;
-                targets['Run'] = 0.0;
             } else {
                 // Stopped + Shooting
-                // Use Full Body Shoot Animation (User Request)
                 targets['Shoot'] = 1.0;
-
-                targets['Shoot_Upper'] = 0.0;
-                targets['Idle'] = 0.0; // Completely replace Idle
-                targets['Run_Legs'] = 0.0;
-                targets['Run'] = 0.0;
             }
         } else {
             // Not Shooting
-            targets['Shoot'] = 0.0;
             if (isMoving) {
                 // Moving Normal
                 targets['Run'] = 1.0;
@@ -1607,6 +1634,12 @@ export class Player {
                 // Stopped Normal
                 targets['Idle'] = 1.0;
             }
+        }
+
+        // OVERRIDE: If hit, play full body flinch over everything else
+        if (isHitFlinching) {
+            Object.keys(targets).forEach(k => { targets[k] = 0; });
+            targets['Hit'] = 1.0;
         }
 
         // 2. Apply Weights IMMEDIATELY (Lerp Disabled to prevent T-pose from partial weight)
