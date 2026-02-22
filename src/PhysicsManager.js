@@ -64,8 +64,8 @@ export class PhysicsManager {
         const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
             .setTranslation(pos.x, pos.y + centerOfMassY, pos.z)
             .setRotation({ x: initQuat.x, y: initQuat.y, z: initQuat.z, w: initQuat.w })
-            .setLinearDamping(0.3)
-            .setAngularDamping(0.5);
+            .setLinearDamping(0.0)
+            .setAngularDamping(0.1);
 
         const body = this.world.createRigidBody(bodyDesc);
 

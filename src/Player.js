@@ -88,7 +88,8 @@ export class Player {
         this.isRagdolling = true;
 
         // Create ragdoll using PhysicsManager (mesh follows physics automatically)
-        if (this.game && this.game.physicsManager) {
+        // ONLY the local player simulates their own ragdoll physics body. Network will sync it to others.
+        if (this.isLocal && this.game && this.game.physicsManager) {
             this.game.physicsManager.createRagdoll(this, impulseDirection, this.game.scene);
         }
 
