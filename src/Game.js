@@ -72,7 +72,7 @@ export class Game {
             let loadedCount = 0;
             const checkDone = () => {
                 loadedCount++;
-                if (loadedCount >= 3) resolve();
+                if (loadedCount >= 4) resolve();
             };
 
             console.log('[Game] Loading centralized enemy assets...');
@@ -97,6 +97,17 @@ export class Game {
                 checkDone();
             }, undefined, (err) => {
                 console.error('[Game] Failed to load Swiping FBX:', err);
+                checkDone();
+            });
+
+            // 3. Load Death Animation
+            fbxLoader.load('/models/enemy/SwordAndShieldDeath_UE.FBX', (object) => {
+                if (object.animations.length > 0) {
+                    this.enemyAssets.animations['Death'] = object.animations[0];
+                }
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load Death FBX:', err);
                 checkDone();
             });
 
@@ -130,6 +141,11 @@ export class Game {
     initThree() {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x333333);
+
+        // Pre-allocate geometry and materials for hit effects to prevent shooting stutter (GPU uploads)
+        this.hitGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        this.hitMaterialRed = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        this.hitMaterialOrange = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
         this.renderer = new THREE.WebGLRenderer({ antialias: false });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -283,24 +299,29 @@ export class Game {
         const walls = this.level.getCollidables();
         const wallIntersects = raycaster.intersectObjects(walls);
 
-        const playerMeshes = [];
+        const targetMeshes = [];
         Object.values(this.remotePlayers).forEach(p => {
-            if (p.mesh) playerMeshes.push(p.mesh);
+            if (p.mesh) targetMeshes.push(p.mesh);
         });
-        const playerIntersects = raycaster.intersectObjects(playerMeshes, true);
+        // CRITICAL PERFORMANCE FIX: Never push `e.mesh` because Raycasting against 50,000 animating triangles freezes the thread!
+        // Instead, deliberately push ONLY the primitive 12-triangle `e.placeholder` collision bounds.
+        this.enemies.forEach(e => {
+            if (e.placeholder) targetMeshes.push(e.placeholder);
+        });
+        const targetIntersects = raycaster.intersectObjects(targetMeshes, true);
 
         let hit = null;
         let isPlayerHit = false;
 
-        if (wallIntersects.length > 0 && playerIntersects.length > 0) {
-            if (playerIntersects[0].distance < wallIntersects[0].distance) {
-                hit = playerIntersects[0];
-                isPlayerHit = true;
+        if (wallIntersects.length > 0 && targetIntersects.length > 0) {
+            if (targetIntersects[0].distance < wallIntersects[0].distance) {
+                hit = targetIntersects[0];
+                isPlayerHit = true; // Treats both players and enemies as entity hits
             } else {
                 hit = wallIntersects[0];
             }
-        } else if (playerIntersects.length > 0) {
-            hit = playerIntersects[0];
+        } else if (targetIntersects.length > 0) {
+            hit = targetIntersects[0];
             isPlayerHit = true;
         } else if (wallIntersects.length > 0) {
             hit = wallIntersects[0];
@@ -323,13 +344,24 @@ export class Game {
                     obj = obj.parent;
                 }
 
-                if (targetId && this.networkManager) {
-                    console.log(`[Game] Hit Player ${targetId}! Sending damage...`);
-                    this.networkManager.sendHit(targetId, 10, direction); // Send direction for ragdoll
-
-                    // ALSO apply damage locally to the remote player's 3D health bar
-                    if (this.remotePlayers[targetId]) {
+                if (targetId) {
+                    // Check if it's a remote player
+                    if (this.networkManager && this.remotePlayers[targetId]) {
+                        console.log(`[Game] Hit Player ${targetId}! Sending damage...`);
+                        this.networkManager.sendHit(targetId, 10, direction); // Send direction for ragdoll
                         this.remotePlayers[targetId].takeDamage(10, direction);
+                    }
+                    // Check if it's an AI enemy
+                    else {
+                        const hitEnemy = this.enemies.find(e => e.id === targetId);
+                        if (hitEnemy) {
+                            console.log(`[Game] Hit Enemy ${targetId}! Sending damage to server...`);
+                            if (this.networkManager) {
+                                this.networkManager.sendHit(targetId, 10, direction);
+                            } else {
+                                hitEnemy.takeDamage(10, direction); // Offline fallback
+                            }
+                        }
                     }
                 }
 
@@ -357,8 +389,14 @@ export class Game {
         } else if (data.targetId && this.remotePlayers[data.targetId] && data.shooterId !== (this.networkManager ? this.networkManager.id : null)) {
             // Sync death/damage animation for remote players shot by others
             this.remotePlayers[data.targetId].takeDamage(data.damage, dir);
+        } else if (data.targetId && data.targetId.startsWith('enemy_')) {
+            // It's an AI enemy taking damage
+            const enemy = this.enemies.find(e => e.id === data.targetId);
+            if (enemy) {
+                enemy.takeDamage(data.damage, dir);
+            }
         }
-        // NOTE: Remote player damage is applied directly in handleShoot() for immediate feedback.
+        // NOTE: Remote player/enemy damage initiated by THIS client is handled either in fallback or network echo.
     }
 
     handleEnemyStates(states) {
@@ -435,9 +473,9 @@ export class Game {
     }
 
     createHitEffect(position, normal, color = 0xffaa00) {
-        const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-        const material = new THREE.MeshBasicMaterial({ color: color });
-        const particle = new THREE.Mesh(geometry, material);
+        // Use cached geometry and material to avoid massive stuttering on rapid fire
+        const material = (color === 0xff0000) ? this.hitMaterialRed : this.hitMaterialOrange;
+        const particle = new THREE.Mesh(this.hitGeometry, material);
         particle.position.copy(position);
         particle.lookAt(position.clone().add(normal));
         this.scene.add(particle);

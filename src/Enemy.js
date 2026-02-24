@@ -40,6 +40,10 @@ export class Enemy {
         // Used for wandering
         this.wanderDirection = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
         this.changeDirectionTimer = 0;
+
+        // Audio
+        this.hitAudio = new Audio('/models/enemy/punch_robot.WAV');
+        this.deathAudio = new Audio('/models/enemy/devil_scared2.WAV');
     }
 
     createPlaceholder() {
@@ -68,10 +72,13 @@ export class Enemy {
 
         console.log(`[Enemy ${this.id}] Cloned Walking FBX`);
 
-        // Remove placeholder
+        // Instead of removing the placeholder, we make it completely invisible.
+        // We MUST keep it because THREE.js Raycaster fails against moving SkinnedMesh bones (it hits the invisible static T-Pose).
+        // By keeping this BoxGeometry alive, we get perfect Doom-like hit detection!
         if (this.placeholder) {
-            this.mesh.remove(this.placeholder);
-            this.placeholder = null;
+            this.placeholder.material.transparent = true;
+            this.placeholder.material.opacity = 0;
+            this.placeholder.material.depthWrite = false;
         }
 
         // User requested exactly half the size of the previous iteration
@@ -142,6 +149,15 @@ export class Enemy {
             this.animations['Attack'] = swipeAction;
             console.log(`[Enemy ${this.id}] Attack Animation Linked`);
         }
+
+        // 3. Death Animation
+        if (this.assets.animations['Death']) {
+            const deathAction = this.mixer.clipAction(this.assets.animations['Death']);
+            deathAction.setLoop(THREE.LoopOnce, 1);
+            deathAction.clampWhenFinished = true;
+            this.animations['Death'] = deathAction;
+            console.log(`[Enemy ${this.id}] Death Animation Linked`);
+        }
     }
 
     takeDamage(amount, direction) {
@@ -161,11 +177,18 @@ export class Enemy {
         if (!this.modelWrapper) return;
         this.modelWrapper.traverse((child) => {
             if (child.isMesh && child.material) {
-                const origColor = child.material.color.getHex();
-                child.material.color.setHex(0xffffff); // Flash white/bright red
-                setTimeout(() => {
-                    if (child && child.material) {
-                        child.material.color.setHex(origColor);
+                // Save original color permanently so rapid fire doesn't overwrite it with white
+                if (!child.userData.origColor) {
+                    child.userData.origColor = child.material.color.getHex();
+                }
+                child.material.color.setHex(0xffffff); // Flash white
+
+                // Clear any existing timeout to prevent flickering
+                if (child.userData.flashTimeout) clearTimeout(child.userData.flashTimeout);
+
+                child.userData.flashTimeout = setTimeout(() => {
+                    if (child && child.material && child.userData.origColor) {
+                        child.material.color.setHex(child.userData.origColor);
                     }
                 }, 100);
             }
@@ -174,28 +197,53 @@ export class Enemy {
 
     die() {
         this.isDead = true;
-        this.state = 'DEAD';
+        this.setState('DEAD'); // Use setState so it triggers animations
         console.log(`[Enemy ${this.id}] Died!`);
 
-        // For now, in Step 1, just remove the enemy from the scene
-        // We will add the Death FBX animation in Step 3
-        this.game.scene.remove(this.mesh);
+        // Play death audio so the player knows the enemy actually died
+        if (this.deathAudio) {
+            this.deathAudio.currentTime = 0;
+            this.deathAudio.play().catch(e => console.log('Death audio play failed:', e));
+        }
+
+        // Remove the placeholder collision box immediately so it can't be shot anymore
+        if (this.placeholder) {
+            this.mesh.remove(this.placeholder);
+            this.placeholder = null;
+        }
+
+        // Keep the dead body visible on the ground for 10 seconds before deleting to save memory
+        setTimeout(() => {
+            if (this.game && this.game.scene && this.mesh) {
+                this.game.scene.remove(this.mesh);
+            }
+        }, 10000);
     }
 
     update(delta) {
         if (!this.mesh) return;
 
+        // Animations must always run for both Host and Client
+        if (this.mixer) {
+            this.mixer.update(delta);
+        }
+
+        if (this.isDead) {
+            // IMPORTANT FIX: The Death animation lays placing the character face-down.
+            // But `modelWrapper.position.y` was shifted UP implicitly during loadModels() to fix clipping in T-Pose.
+            // When prone, this upward shift causes the character to float in the air.
+            // We gradually reduce the Y offset to 0.4 so the face-down body touches the true floor perfectly without vanishing.
+            // This now successfully runs on BOTH Host and Client!
+            if (this.modelWrapper && this.modelWrapper.position.y > 0.4) {
+                this.modelWrapper.position.y = Math.max(0.4, this.modelWrapper.position.y - delta * 2.0);
+            }
+            return; // Halt AI logic but allow animations to play
+        }
+
         // MULTIPLAYER SYNC: If we are a Client, simply animate the mesh at the synced network coordinates.
         // We do NOT run AI loops or collision checks on Clients, because the Host handles that and broadcasts the results.
         if (this.game.networkManager && !this.game.networkManager.isHost) {
-            if (this.mixer) this.mixer.update(delta);
             return;
-        }
-
-        if (this.isDead) return;
-
-        if (this.mixer) {
-            this.mixer.update(delta);
         }
 
         // Logic loop
@@ -285,6 +333,8 @@ export class Enemy {
                 }
             } else if (newState === 'ATTACK') {
                 this.setAnimationAction('Attack');
+            } else if (newState === 'DEAD') {
+                this.setAnimationAction('Death');
             }
         }
 
