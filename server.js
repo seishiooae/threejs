@@ -68,8 +68,17 @@ httpServer.on('request', (req, res) => {
 
 const players = {};
 
+let hostId = null;
+
 io.on('connection', (socket) => {
   console.log('Player connected:', socket.id);
+
+  // Assign Host role
+  if (!hostId) {
+    hostId = socket.id;
+    console.log(`Assigned HOST role to: ${hostId}`);
+  }
+  socket.emit('setHost', hostId === socket.id);
 
   // Initialize new player
   if (!players[socket.id]) {
@@ -114,6 +123,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('ragdollUpdate', { id: socket.id, ragdollState: data.ragdollState });
   });
 
+  socket.on('enemyState', (states) => {
+    // Relay enemy states from Host to all other clients
+    socket.broadcast.emit('enemyState', states);
+  });
+
   socket.on('ragdollEnd', (data) => {
     // Notify all other clients that ragdoll has ended
     socket.broadcast.emit('ragdollEnd', { id: socket.id });
@@ -123,6 +137,18 @@ io.on('connection', (socket) => {
     console.log('Player disconnected:', socket.id);
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
+
+    // Reassign host if necessary
+    if (socket.id === hostId) {
+      const remainingPlayers = Object.keys(players);
+      if (remainingPlayers.length > 0) {
+        hostId = remainingPlayers[0];
+        console.log(`Re-assigned HOST role to: ${hostId}`);
+        io.to(hostId).emit('setHost', true);
+      } else {
+        hostId = null;
+      }
+    }
   });
 });
 

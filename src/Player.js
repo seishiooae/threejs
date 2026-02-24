@@ -45,13 +45,14 @@ export class Player {
         this.maxHealth = 100;
         this.health = this.maxHealth;
         this.isDead = false;
+        this.isInvincible = false;
 
         this.init();
         this.autoLoadModels();
     }
 
     takeDamage(amount, direction) {
-        if (this.isDead) return;
+        if (this.isDead || this.isInvincible) return;
 
         this.health -= amount;
         console.log(`[Player ${this.id}] Took ${amount} damage. Health: ${this.health}`);
@@ -123,6 +124,11 @@ export class Player {
         this.isDead = false;
         this.health = this.maxHealth;
 
+        // Unfreeze animations
+        if (this.mixer) {
+            this.mixer.timeScale = 1.0;
+        }
+
         // Restore mesh visibility and reset rotation
         if (this.mesh) {
             this.mesh.visible = true;
@@ -137,6 +143,13 @@ export class Player {
         if (this.healthBarSprite) {
             this.healthBarSprite.visible = true;
         }
+
+        // Grant 3 seconds of invulnerability
+        this.isInvincible = true;
+        setTimeout(() => {
+            this.isInvincible = false;
+            console.log(`[Player ${this.id}] Invulnerability ended.`);
+        }, 3000);
 
         // Update health bar
         if (this.drawHealthBar) this.drawHealthBar();
@@ -165,7 +178,7 @@ export class Player {
         this.ragdollTime = 0;
         this.ragdollOriginalBones = null;
 
-        console.log(`[Player ${this.id}] Respawned at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+        console.log(`[Player ${this.id}] Respawned at ${spawnPos.x.toFixed(1)}, ${spawnPos.z.toFixed(1)}`);
     }
 
     /**
@@ -175,7 +188,14 @@ export class Player {
     updateRagdollPose(delta) {
         if (!this.isRagdolling) return;
 
-        this.ragdollTime += delta;
+        // Cap animation delta to protect IK math from blowing up on low framerates (max ~20fps step)
+        const safeDelta = Math.min(delta, 0.05);
+        this.ragdollTime += safeDelta;
+
+        // Stop calculating IK after 2.0 seconds to completely freeze the pose and prevent ANY micro-flickering on the ground
+        if (this.ragdollTime > 2.0) {
+            return;
+        }
 
         // 初回: 各ボーンの初期状態と階層情報を保存
         if (!this.ragdollOriginalBones) {
@@ -254,15 +274,15 @@ export class Player {
         for (const pair of this.ragdollPairs) {
             const { parent, child, restDir, weight, isLeg, sprawlDir, tag } = pair;
 
-            // 腰と脚はカプセルが倒れ始める段階で少し遅れて、よりゆっくりと脱力する
-            // 腕(isLeg=false)は 0秒～0.5秒 で早めに脱力
-            // 腰・脚(isLeg=true)は 0.2秒～1.2秒 (1.0秒間) かけて緩やかに脱力
+            // 腰と脚はカプセルが倒れ始める段階で少し遅れて、より早く・自然な速さで脱力する
+            // 腕(isLeg=false)は 0秒～0.2秒 で一気に脱力
+            // 腰・脚(isLeg=true)は 0.05秒～0.5秒 (0.45秒間) かけて素速く脱力
             let t = 0;
             if (isLeg) {
-                if (this.ragdollTime < 0.2) continue;
-                t = Math.max(0, (this.ragdollTime - 0.2) / 1.0);
+                if (this.ragdollTime < 0.05) continue;
+                t = Math.max(0, (this.ragdollTime - 0.05) / 0.45);
             } else {
-                t = Math.max(0, this.ragdollTime / 0.5);
+                t = Math.max(0, this.ragdollTime / 0.2);
             }
 
             const ease = 1.0 - Math.pow(1.0 - Math.min(1.0, t), 2);
@@ -353,7 +373,8 @@ export class Player {
                 }
                 // -----------------------------------------
 
-                const damping = 1.0 - Math.exp(-12.0 * delta);
+                // 増強したダンピング係数（フレーム落ち時に100%になって暴れるのを防ぐため safeDelta を使用）
+                const damping = 1.0 - Math.exp(-40.0 * safeDelta);
                 parent.quaternion.slerp(targetQuat, damping * blendWeight);
 
                 // 行列更新して現在位置を仮確認
@@ -424,12 +445,16 @@ export class Player {
     }
 
     getSpawnPosition() {
-        // Map center is at roughly X=22.5, Z=22.5
-        // Add random offset between -5 and +5 to prevent overlap and spawn near the center
-        const offset = 10;
-        const x = 22.5 + (Math.random() - 0.5) * offset;
-        const z = 22.5 + (Math.random() - 0.5) * offset;
+        // Map center open area is at roughly X=25, Z=25
+        // Add random offset between -2 and +2 to prevent multiplayer overlap in the center
+        const offset = 4;
+        const x = 25.0 + (Math.random() - 0.5) * offset;
+        const z = 25.0 + (Math.random() - 0.5) * offset;
         return { x, z };
+    }
+
+    getPosition() {
+        return this.isLocal ? this.pivot.position : this.mesh.position;
     }
 
     init() {
@@ -592,6 +617,9 @@ export class Player {
             const yOffset = -box.min.y;
             object.position.y = yOffset;
 
+            // Hide wrapper until animations finish loading so the user doesn't see a static T-pose
+            this.modelWrapper.visible = false;
+
             console.log('FBX Hierarchy Loaded: Wrapper X=-PI/2');
 
             // 4. Force Gray Material on all meshes + Assign userData.id for Raycaster hit detection
@@ -599,6 +627,7 @@ export class Player {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
+                    child.frustumCulled = false; // Prevent flickering during ragdoll bone stretches
                     child.material = new THREE.MeshStandardMaterial({
                         color: 0x888888,
                         roughness: 0.7,
@@ -915,6 +944,10 @@ export class Player {
                 if (name === this.currentAction) {
                     action.reset().fadeIn(0.3).play();
                     console.log(`Auto-switched to new ${name} animation`);
+                    // Ensure the model is visible now that it has an animation pose!
+                    if (this.modelWrapper) {
+                        this.modelWrapper.visible = true;
+                    }
                 }
             }
         }, undefined, (err) => {
@@ -1407,12 +1440,35 @@ export class Player {
         this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
         this.direction.normalize();
 
-        const speed = 70.0; // Increased from 50.0 again for faster movement
+        const speed = 110.0; // Increased significantly for faster movement per user request
         if (this.moveForward || this.moveBackward) this.velocity.z -= this.direction.z * speed * delta;
         if (this.moveLeft || this.moveRight) this.velocity.x -= this.direction.x * speed * delta;
 
+        // Apply X movement with Wall Collision
+        const startPos = this.pivot.position.clone();
         this.controls.moveRight(-this.velocity.x * delta);
+        const playerSphereX = new THREE.Sphere(this.pivot.position.clone(), 0.5);
+        for (const wall of walls) {
+            wall.geometry.computeBoundingBox();
+            if (new THREE.Box3().setFromObject(wall).intersectsSphere(playerSphereX)) {
+                this.pivot.position.copy(startPos); // Revert
+                this.velocity.x = 0;
+                break;
+            }
+        }
+
+        // Apply Z movement with Wall Collision
+        const midPos = this.pivot.position.clone();
         this.controls.moveForward(-this.velocity.z * delta);
+        const playerSphereZ = new THREE.Sphere(this.pivot.position.clone(), 0.5);
+        for (const wall of walls) {
+            wall.geometry.computeBoundingBox();
+            if (new THREE.Box3().setFromObject(wall).intersectsSphere(playerSphereZ)) {
+                this.pivot.position.copy(midPos); // Revert
+                this.velocity.z = 0;
+                break;
+            }
+        }
 
         this.syncVisuals(delta, isFiring);
     }
@@ -1509,7 +1565,13 @@ export class Player {
     }
 
     updateRemoteState(state) {
-        // Skip updates while dead (PhysicsManager controls mesh position)
+        // If they were dead but their networked health indicates they respawned, force a respawn on the client side
+        if (this.isDead && state.health !== undefined && state.health > 0) {
+            console.log(`[Player ${this.id}] was dead but received health ${state.health}. Respawning remotely.`);
+            this.respawn();
+        }
+
+        // Skip positional updates while dead (PhysicsManager controls the limp ragdoll)
         if (this.isDead) return;
 
         // Called by NetworkManager
@@ -1856,6 +1918,15 @@ export class Player {
             console.log('Shooting triggered');
         }
 
+        // Play Sound
+        try {
+            const snd = new Audio('/models/enemy/RifleA_Fire_ST01.WAV');
+            snd.volume = 0.4;
+            snd.play().catch(e => console.warn(e));
+        } catch (e) {
+            console.warn("Audio playback failed:", e);
+        }
+
         return this.getBulletSpawnState();
     }
 
@@ -1980,6 +2051,31 @@ export class Player {
 
         if (this.healthBarTexture) {
             this.healthBarTexture.needsUpdate = true;
+        }
+    }
+
+    dispose() {
+        if (this.mesh) {
+            this.game.scene.remove(this.mesh);
+        }
+        if (this.pivot) {
+            this.game.scene.remove(this.pivot);
+        }
+        if (this.healthBarSprite) {
+            this.mesh.remove(this.healthBarSprite);
+        }
+        if (this.game.physicsManager && this.id) {
+            this.game.physicsManager.removeRagdoll(this.id);
+        }
+    }
+
+    playHitSound() {
+        try {
+            const snd = new Audio('/models/enemy/punch_robot.WAV');
+            snd.volume = 0.8;
+            snd.play().catch(e => console.warn(e));
+        } catch (e) {
+            console.warn("Audio playback failed:", e);
         }
     }
 }

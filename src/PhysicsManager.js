@@ -15,7 +15,8 @@ export class PhysicsManager {
 
     async init() {
         await RAPIER.init();
-        const gravity = { x: 0.0, y: -9.81, z: 0.0 };
+        // Massively increased gravity so the player drops fast when dying instead of floating
+        const gravity = { x: 0.0, y: -40.0, z: 0.0 };
         this.world = new RAPIER.World(gravity);
         this.createGroundPlane();
         this.initialized = true;
@@ -33,7 +34,18 @@ export class PhysicsManager {
 
     update(delta) {
         if (!this.initialized || !this.world) return;
-        this.world.step();
+
+        // Calculate physics steps strictly based on time to ensure identical fall speeds on all PCs
+        this.accumulator = (this.accumulator || 0) + delta;
+        const timeStep = 1.0 / 60.0;
+
+        // Cap accumulator to avoid "death spirals" on severe lag spikes
+        if (this.accumulator > 0.1) this.accumulator = 0.1;
+
+        while (this.accumulator >= timeStep) {
+            this.world.step();
+            this.accumulator -= timeStep;
+        }
 
         for (const id in this.ragdolls) {
             this.syncRagdollToMesh(id);
@@ -60,20 +72,20 @@ export class PhysicsManager {
         // プレイヤーモデルの重心高さ（立位時の腰の高さ）
         const centerOfMassY = 0.85;
 
-        // 単一のダイナミックボディを作成（カプセル型）
+        // 単一のダイナミックボディを作成（直方体・キューブ型に変更して転がりを防止）
         const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
             .setTranslation(pos.x, pos.y + centerOfMassY, pos.z)
             .setRotation({ x: initQuat.x, y: initQuat.y, z: initQuat.z, w: initQuat.w })
-            .setLinearDamping(0.0)
-            .setAngularDamping(0.1);
+            .setLinearDamping(2.0)
+            .setAngularDamping(20.0); // 極めて強いブレーキ。倒れたあとの転がりを完全に防ぎ、腕のちらつきをなくす
 
         const body = this.world.createRigidBody(bodyDesc);
 
-        // カプセルコライダー: half_height=0.55, radius=0.2 → 全長約1.5m
+        // カプセルコライダー（全長約1.5m）。角がないため引っかからず自然に倒れ込める。
         const colliderDesc = RAPIER.ColliderDesc.capsule(0.55, 0.2)
             .setMass(10.0)
-            .setRestitution(0.05)
-            .setFriction(1.0);
+            .setRestitution(0.0) // 反発ゼロ
+            .setFriction(5.0);   // 激しい摩擦をかけて滑り・転がりを物理的に停止させる
 
         this.world.createCollider(colliderDesc, body);
 
@@ -85,19 +97,19 @@ export class PhysicsManager {
 
         // 弾の方向にインパルスを適用
         if (impulseDir) {
-            const force = 6.0;
+            const force = 20.0; // Increased massively for a heavy impact feel
             body.applyImpulse({
                 x: impulseDir.x * force,
-                y: 2.0,
+                y: -10.0, // Smash downwards instead of popping up
                 z: impulseDir.z * force,
             }, true);
             body.applyTorqueImpulse({
-                x: -impulseDir.z * 3.0,
+                x: -impulseDir.z * 5.0,
                 y: 0,
-                z: impulseDir.x * 3.0,
+                z: impulseDir.x * 5.0,
             }, true);
         } else {
-            body.applyTorqueImpulse({ x: 2.0, y: 0, z: 1.0 }, true);
+            body.applyTorqueImpulse({ x: 5.0, y: 0, z: 2.5 }, true);
         }
 
         this.ragdolls[player.id] = ragdoll;

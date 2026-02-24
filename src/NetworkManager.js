@@ -8,6 +8,7 @@ export class NetworkManager {
         this.socket = io(serverUrl);
         this.id = null;
         this.remotePlayers = {}; // Map of id -> mesh/player object
+        this.isHost = true; // Default to host if offline
 
         this.setupSocket();
     }
@@ -21,14 +22,26 @@ export class NetworkManager {
         this.socket.on('players', (serverPlayers) => {
             // Initial load of existing players
             for (const id in serverPlayers) {
-                if (id !== this.id) {
+                if (id !== this.socket.id) {
                     this.addRemotePlayer(id, serverPlayers[id]);
                 }
             }
         });
 
+        this.socket.on('setHost', (isHost) => {
+            console.log(`[NetworkManager] I am now ${isHost ? 'HOST' : 'CLIENT'}`);
+            this.isHost = isHost;
+        });
+
+        this.socket.on('enemyState', (states) => {
+            // Received enemy states from the Host player
+            if (!this.isHost && this.game.handleEnemyStates) {
+                this.game.handleEnemyStates(states);
+            }
+        });
+
         this.socket.on('playerConnected', (data) => {
-            if (data.id !== this.id) {
+            if (data.id !== this.socket.id) {
                 this.addRemotePlayer(data.id, data.state);
             }
         });
@@ -45,7 +58,7 @@ export class NetworkManager {
 
         this.socket.on('playerShoot', (data) => {
             // data contains { id, origin, direction }
-            if (data.id !== this.id) {
+            if (data.id !== this.socket.id) {
                 this.game.createRemoteBullet(data.id, data.origin, data.direction);
             }
         });
@@ -60,11 +73,12 @@ export class NetworkManager {
 
         this.socket.on('ragdollUpdate', (data) => {
             // data: { id, ragdollState }
-            if (data.id !== this.id && this.game.physicsManager) {
+            if (data.id !== this.socket.id && this.game.physicsManager) {
                 const player = this.remotePlayers[data.id];
                 if (player) {
-                    // Stop animations during ragdoll
-                    if (player.mixer) player.mixer.stopAllAction();
+                    // Animations are frozen by Player.die() locally or upon taking damage via handlePlayerHit.
+                    // DO NOT call stopAllAction() here, as it forces the skeleton into a T-pose every tick!
+
                     // Hide weapon during ragdoll
                     if (player.weapon) player.weapon.visible = false;
                     if (player.healthBarSprite) player.healthBarSprite.visible = false;
@@ -76,7 +90,7 @@ export class NetworkManager {
 
         this.socket.on('ragdollEnd', (data) => {
             // data: { id }
-            if (data.id !== this.id && this.game.physicsManager) {
+            if (data.id !== this.socket.id && this.game.physicsManager) {
                 this.game.physicsManager.removeRagdoll(data.id);
                 const player = this.remotePlayers[data.id];
                 if (player) {
@@ -116,8 +130,10 @@ export class NetworkManager {
 
     addRemotePlayer(id, state) {
         console.log('Adding remote player:', id);
-        // Delegate creation to Game or directly create mesh here
-        // For now, let's call a method in Game to spawn a remote player
+        if (this.remotePlayers[id]) {
+            this.removeRemotePlayer(id);
+        }
+        // Delegate creation to Game
         this.remotePlayers[id] = this.game.createRemotePlayer(id, state);
     }
 

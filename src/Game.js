@@ -7,6 +7,10 @@ import { MiniMap } from './MiniMap.js';
 import { SoundManager } from './SoundManager.js';
 import { updateDebugOverlay } from './DebugOverlay.js';
 import { PhysicsManager } from './PhysicsManager.js';
+import { Enemy } from './Enemy.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { TGALoader } from 'three/examples/jsm/loaders/TGALoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 export class Game {
     constructor() {
@@ -23,6 +27,8 @@ export class Game {
         this.isRightMouseDown = false;
         this.walls = [];
         this.bullets = [];
+        this.enemies = [];
+        this.enemyAssets = null; // Store cached FBX models for cloning
         this.remotePlayers = {};
         this.lastShootTime = 0;
         this.miniMapVisible = true;
@@ -48,7 +54,77 @@ export class Game {
         this.physicsManager = new PhysicsManager();
         await this.physicsManager.init();
 
+        // Start animation immediately so the screen doesn't stay black
         this.animate();
+
+        // Load 40MB of enemy assets in the background, then spawn them
+        this.loadEnemyAssets().then(() => {
+            this.initEnemies();
+        });
+    }
+
+    async loadEnemyAssets() {
+        return new Promise((resolve) => {
+            const fbxLoader = new FBXLoader();
+            const tgaLoader = new TGALoader();
+            this.enemyAssets = { animations: {} };
+
+            let loadedCount = 0;
+            const checkDone = () => {
+                loadedCount++;
+                if (loadedCount >= 3) resolve();
+            };
+
+            console.log('[Game] Loading centralized enemy assets...');
+
+            // 1. Load Walk Model
+            fbxLoader.load('/models/enemy/MutantWalking_Anim.FBX', (object) => {
+                this.enemyAssets.walkModel = object;
+                if (object.animations.length > 0) {
+                    this.enemyAssets.animations['Walk'] = object.animations[0];
+                }
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load Walking FBX:', err);
+                checkDone();
+            });
+
+            // 2. Load Swipe Animation
+            fbxLoader.load('/models/enemy/MutantSwiping_Anim.FBX', (object) => {
+                if (object.animations.length > 0) {
+                    this.enemyAssets.animations['Attack'] = object.animations[0];
+                }
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load Swiping FBX:', err);
+                checkDone();
+            });
+
+            // 3. Load Texture
+            tgaLoader.load('/models/enemy/Kongou999.TGA', (texture) => {
+                this.enemyAssets.texture = texture;
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load Kongou999.TGA texture (Missing file?):', err);
+                checkDone();
+            });
+        });
+    }
+
+    initEnemies() {
+        // Spawn 3 enemies inside valid maze bounds, behind walls so they don't immediately see the player
+        const spawnPoints = [
+            // These points are physically on the outer edges of the 50x50 map structure
+            new THREE.Vector3(25.0, 0, 5.0),  // マップ上部の一番外側の通路（壁の向こう）
+            new THREE.Vector3(5.0, 0, 25.0),  // マップ左側の一番外側の通路（壁の向こう）
+            new THREE.Vector3(40.0, 0, 40.0)  // マップ右下の一番外側の通路（壁の向こう）
+        ];
+
+        for (let i = 0; i < 3; i++) {
+            const position = spawnPoints[i];
+            const enemy = new Enemy(this, position, `enemy_spawn_${i}`, this.enemyAssets);
+            this.enemies.push(enemy);
+        }
     }
 
     initThree() {
@@ -75,10 +151,6 @@ export class Game {
 
     initPlayer() {
         this.player = new Player(this, 'local', true);
-    }
-
-    initNetwork() {
-        this.networkManager = new NetworkManager(this);
     }
 
     initNetwork() {
@@ -207,10 +279,6 @@ export class Game {
         const bullet = new Bullet(this.scene, origin, direction);
         this.bullets.push(bullet);
 
-        if (this.soundManager) {
-            this.soundManager.playShootSound();
-        }
-
         const raycaster = new THREE.Raycaster(origin, direction);
         const walls = this.level.getCollidables();
         const wallIntersects = raycaster.intersectObjects(walls);
@@ -240,7 +308,6 @@ export class Game {
 
         if (hit && hit.distance < 100) {
             if (isPlayerHit) {
-                if (this.soundManager) this.soundManager.playHitSound();
                 if (hit.face) this.createHitEffect(hit.point, hit.face.normal, 0xff0000);
 
                 // SEND HIT EVENT TO NETWORK
@@ -287,8 +354,27 @@ export class Game {
         if (this.player && this.networkManager && data.targetId === this.networkManager.id) {
             // It's ME! I took damage from another player.
             this.player.takeDamage(data.damage, dir);
+        } else if (data.targetId && this.remotePlayers[data.targetId] && data.shooterId !== (this.networkManager ? this.networkManager.id : null)) {
+            // Sync death/damage animation for remote players shot by others
+            this.remotePlayers[data.targetId].takeDamage(data.damage, dir);
         }
         // NOTE: Remote player damage is applied directly in handleShoot() for immediate feedback.
+    }
+
+    handleEnemyStates(states) {
+        // Only clients receive and apply these from the Host
+        if (this.networkManager && this.networkManager.isHost) return;
+
+        states.forEach(state => {
+            const enemy = this.enemies.find(e => e.id === state.id);
+            if (enemy && enemy.mesh) {
+                enemy.mesh.position.set(state.pos.x, state.pos.y, state.pos.z);
+                enemy.mesh.rotation.y = state.rot;
+                if (enemy.setAnimationAction && state.action && enemy.currentAction !== state.action) {
+                    enemy.setAnimationAction(state.action);
+                }
+            }
+        });
     }
 
     createRemotePlayer(id, state) {
@@ -322,7 +408,7 @@ export class Game {
     removeRemotePlayer(player) {
         if (player) {
             console.log(`[Game] Removing Remote Player: ${player.id}`);
-            this.scene.remove(player.mesh);
+            player.dispose(); // Call the proper cleanup method to clear physics and scene
             if (player.id && this.remotePlayers[player.id]) {
                 delete this.remotePlayers[player.id];
             }
@@ -346,7 +432,6 @@ export class Game {
 
         const bullet = new Bullet(this.scene, spawnOrigin, spawnDirection);
         this.bullets.push(bullet);
-        if (this.soundManager) this.soundManager.playShootSound();
     }
 
     createHitEffect(position, normal, color = 0xffaa00) {
@@ -363,12 +448,16 @@ export class Game {
         requestAnimationFrame(() => this.animate());
 
         const time = performance.now();
-        const delta = (time - this.lastTime) / 1000;
+        let delta = (time - this.lastTime) / 1000;
         this.lastTime = time;
+
+        // Cap delta to prevent massive jumps after loading or hiding the browser tab
+        if (delta > 0.1) delta = 0.1;
 
         if (this.player) {
             this.player.update(delta, this.level.getCollidables(), this.isMouseDown);
 
+            // Reverted player attack speed back to 150ms as requested
             if (this.isMouseDown && !this.player.isDead && time > this.lastShootTime + 150) {
                 try {
                     this.handleShoot();
@@ -400,6 +489,19 @@ export class Game {
                     health: this.player.health,
                     maxHealth: this.player.maxHealth
                 });
+
+                // If HOST, broadcast enemy states to sync all clients
+                if (this.networkManager.isHost) {
+                    const enemyStates = this.enemies.filter(e => e.mesh).map(e => ({
+                        id: e.id,
+                        pos: { x: e.mesh.position.x, y: e.mesh.position.y, z: e.mesh.position.z },
+                        rot: e.mesh.rotation.y,
+                        action: e.currentAction
+                    }));
+                    if (enemyStates.length > 0) {
+                        this.networkManager.socket.emit('enemyState', enemyStates);
+                    }
+                }
             }
 
             if (this.player.camera) {
@@ -409,6 +511,7 @@ export class Game {
             Object.values(this.remotePlayers).forEach(p => p.update(delta));
             this.bullets.forEach(b => b.update(delta));
             this.bullets = this.bullets.filter(b => b.alive);
+            this.enemies.forEach(e => e.update(delta));
             if (this.miniMap) this.miniMap.update();
 
             // Update Physics (Ragdoll)

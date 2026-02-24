@@ -49,11 +49,22 @@ export class MiniMap {
         // Draw Remote Players
         // console.log('MiniMap: Remote Players keys:', Object.keys(this.game.remotePlayers)); // Debug
         for (const id in this.game.remotePlayers) {
+            if (this.game.networkManager && id === this.game.networkManager.id) continue;
+
             const p = this.game.remotePlayers[id];
-            if (p && p.mesh) {
-                this.drawPlayer(p.mesh.position, 'red', false);
+            if (p && p.mesh && !p.isDead) {
+                this.drawPlayer(p.mesh.position, 'lime', false);
             } else {
                 // console.warn('MiniMap: Invalid remote player or mesh for ID:', id);
+            }
+        }
+
+        // Draw AIM Enemies (Red)
+        if (this.game.enemies) {
+            for (const enemy of this.game.enemies) {
+                if (enemy && enemy.mesh && !enemy.isDead) {
+                    this.drawPlayer(enemy.mesh.position, 'red', false);
+                }
             }
         }
     }
