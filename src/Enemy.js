@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { HomingMissile } from './HomingMissile.js';
 
 export class Enemy {
     constructor(game, position, id, assets) {
@@ -11,9 +12,17 @@ export class Enemy {
         // 'WALK', 'CHASE', 'ATTACK', 'DEAD'
         this.state = 'WALK';
 
-        this.health = 50; // 50 HP for example
-        this.maxHealth = 50;
+        // Combat Stats (Buffed to withstand more Assault Rifle fire, but reduced from 1000 to 400 per user request)
+        this.maxHealth = 400;
+        this.health = this.maxHealth;
         this.isDead = false;
+
+        // Individual Random AI Characteristics
+        this.speedVariability = 0.8 + Math.random() * 0.4; // 0.8x to 1.2x base speed
+        this.strafePhase = Math.random() * Math.PI * 2; // Random starting sine phase
+        this.strafeSpeed = 1.0 + Math.random() * 2.0; // How fast they strafe cycle
+        this.strafeMagnitude = 0.4 + Math.random() * 0.6; // Max radians to deviate from exact player trajectory
+        this.chaseTimer = 0;
         this.isReady = false; // Prevent AI from running until 40MB models are fully loaded
 
         this.mesh = new THREE.Group();
@@ -160,7 +169,7 @@ export class Enemy {
         }
     }
 
-    takeDamage(amount, direction) {
+    takeDamage(amount, direction, shooterId = null) {
         if (this.isDead) return;
         this.health -= amount;
         console.log(`[Enemy ${this.id}] Took damage! HP: ${this.health}`);
@@ -170,6 +179,60 @@ export class Enemy {
 
         if (this.health <= 0) {
             this.die();
+        } else {
+            // COUNTER ATTACK: Spawns 3 Homing Missiles with a short delay
+            // BOTH Host and Client spawn their own visual missiles to save network bandwidth.
+            // We use shooterId to make sure the missiles track the actual player who fired the bullet.
+            let target = this.game.player;
+            if (shooterId && this.game.networkManager && shooterId !== this.game.networkManager.id) {
+                if (this.game.remotePlayers[shooterId]) {
+                    target = this.game.remotePlayers[shooterId];
+                }
+            }
+
+            if (target) {
+                const now = performance.now();
+                // 3000ms cooldown for missile barrage
+                if (!this.lastMissileTime || now - this.lastMissileTime > 3000) {
+                    this.lastMissileTime = now;
+
+                    // Pre-calculate shared trajectory for the 3-missile stream
+                    const isAccurate = Math.random() < 0.9;
+                    const missOffset = new THREE.Vector3();
+                    if (!isAccurate) {
+                        missOffset.set(
+                            (Math.random() - 0.5) * 15,
+                            (Math.random() - 0.5) * 5,
+                            (Math.random() - 0.5) * 15
+                        );
+                    }
+                    const sign = Math.random() > 0.5 ? 1 : -1;
+                    const launchAngle = sign * (Math.PI / 4 + Math.random() * Math.PI / 4);
+                    const missileOptions = { isAccurate, missOffset, launchAngle };
+
+                    let volleyCount = 0;
+                    const fireInterval = setInterval(() => {
+                        if (this.isDead || volleyCount >= 3) {
+                            clearInterval(fireInterval);
+                            return;
+                        }
+
+                        // Spawn missile slightly above Enemy chest
+                        const spawnPos = this.mesh.position.clone();
+                        spawnPos.y += 1.5;
+
+                        const missile = new HomingMissile(this.game, spawnPos, target, missileOptions);
+                        this.game.projectiles.push(missile);
+
+                        // Play launch audio per user request
+                        const launchAudio = new Audio('/models/enemy/game_explosion7.WAV');
+                        launchAudio.volume = 0.3; // Lower volume so 3 rapid shots don't blow out the speakers
+                        launchAudio.play().catch(e => console.log('Missile launch audio failed:', e));
+
+                        volleyCount++;
+                    }, 100); // 100ms between each missile for a tight stream
+                }
+            }
         }
     }
 
@@ -429,15 +492,19 @@ export class Enemy {
         direction.y = 0; // Keep flat on XZ plane
         direction.normalize();
 
-        const targetYaw = Math.atan2(direction.x, direction.z);
+        this.chaseTimer += delta;
 
-        // Smoothly rotate towards player
+        // Each enemy deviates left/right seamlessly using its own sine wave phase to prevent single-file grouping
+        const currentStrafeOffset = Math.sin(this.strafePhase + this.chaseTimer * this.strafeSpeed) * this.strafeMagnitude;
+        const targetYaw = Math.atan2(direction.x, direction.z) + currentStrafeOffset;
+
+        // Smoothly rotate towards the organically deviated angle
         const diff = targetYaw - this.mesh.rotation.y;
         let normalizedDiff = Math.atan2(Math.sin(diff), Math.cos(diff));
         this.mesh.rotation.y += Math.sign(normalizedDiff) * Math.min(Math.abs(normalizedDiff), this.turnSpeed * 1.5 * delta);
 
-        // 2. Move towards player (faster walk)
-        const chaseSpeed = this.walkSpeed * 1.5;
+        // 2. Move towards player (faster walk, modified by individual variability)
+        const chaseSpeed = this.walkSpeed * 1.5 * this.speedVariability;
         const moveVec = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
         moveVec.normalize().multiplyScalar(chaseSpeed * delta);
 

@@ -107,7 +107,8 @@ export class NetworkManager {
         // Ensure socket disconnects immediately when user reloads the page to prevent "ghost" players from stacking up
         window.addEventListener('beforeunload', () => {
             if (this.socket) {
-                this.socket.disconnect();
+                // Synchronously tell server to drop connection before tab dies
+                this.socket.emit('forceDisconnect');
             }
         });
     }

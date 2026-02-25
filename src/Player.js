@@ -51,11 +51,16 @@ export class Player {
         this.autoLoadModels();
     }
 
-    takeDamage(amount, direction) {
+    takeDamage(amount, direction, explosionForce = 0) {
         if (this.isDead || this.isInvincible) return;
 
         this.health -= amount;
         console.log(`[Player ${this.id}] Took ${amount} damage. Health: ${this.health}`);
+
+        // Apply knockback if it's an explosive hit (e.g., from Homing Missiles)
+        if (explosionForce > 0 && direction && this.isLocal) {
+            this.velocity.add(direction.clone().multiplyScalar(explosionForce));
+        }
 
         // Store last hit direction and time for reactions/ragdoll
         this.lastHitDirection = direction || null;

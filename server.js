@@ -133,7 +133,8 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('ragdollEnd', { id: socket.id });
   });
 
-  socket.on('disconnect', () => {
+  const handleDisconnect = (socket) => {
+    if (!players[socket.id]) return;
     console.log('Player disconnected:', socket.id);
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
@@ -149,6 +150,16 @@ io.on('connection', (socket) => {
         hostId = null;
       }
     }
+  };
+
+  socket.on('forceDisconnect', () => {
+    console.log('Player forced disconnect on reload:', socket.id);
+    handleDisconnect(socket);
+    socket.disconnect(true);
+  });
+
+  socket.on('disconnect', () => {
+    handleDisconnect(socket);
   });
 });
 

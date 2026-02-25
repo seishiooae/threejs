@@ -11,6 +11,7 @@ import { Enemy } from './Enemy.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { TGALoader } from 'three/examples/jsm/loaders/TGALoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { HomingMissile } from './HomingMissile.js';
 
 export class Game {
     constructor() {
@@ -27,6 +28,7 @@ export class Game {
         this.isRightMouseDown = false;
         this.walls = [];
         this.bullets = [];
+        this.projectiles = []; // For homing missiles and other entities
         this.enemies = [];
         this.enemyAssets = null; // Store cached FBX models for cloning
         this.remotePlayers = {};
@@ -123,12 +125,12 @@ export class Game {
     }
 
     initEnemies() {
-        // Spawn 3 enemies inside valid maze bounds, behind walls so they don't immediately see the player
+        // Spawn 3 enemies inside valid maze bounds, behind walls or in open plazas
+        // Map is 16x16 cells. Cell size = 5. Valid interior size is up to 70x70.
         const spawnPoints = [
-            // These points are physically on the outer edges of the 50x50 map structure
-            new THREE.Vector3(25.0, 0, 5.0),  // マップ上部の一番外側の通路（壁の向こう）
-            new THREE.Vector3(5.0, 0, 25.0),  // マップ左側の一番外側の通路（壁の向こう）
-            new THREE.Vector3(40.0, 0, 40.0)  // マップ右下の一番外側の通路（壁の向こう）
+            new THREE.Vector3(25.0, 0, 10.0), // Top plaza area
+            new THREE.Vector3(15.0, 0, 50.0), // Left inner maze
+            new THREE.Vector3(65.0, 0, 65.0)  // Bottom right deep corner
         ];
 
         for (let i = 0; i < 3; i++) {
@@ -393,7 +395,7 @@ export class Game {
             // It's an AI enemy taking damage
             const enemy = this.enemies.find(e => e.id === data.targetId);
             if (enemy) {
-                enemy.takeDamage(data.damage, dir);
+                enemy.takeDamage(data.damage, dir, data.shooterId);
             }
         }
         // NOTE: Remote player/enemy damage initiated by THIS client is handled either in fallback or network echo.
@@ -406,6 +408,10 @@ export class Game {
         states.forEach(state => {
             const enemy = this.enemies.find(e => e.id === state.id);
             if (enemy && enemy.mesh) {
+                // BUG FIX: Do not apply network 'WALK'/'CHASE' states if the local Enemy has already died and is playing 'DEATH'.
+                // Applying position/animation here causes the dead mesh to rise back up with sinking feet!
+                if (enemy.isDead) return;
+
                 enemy.mesh.position.set(state.pos.x, state.pos.y, state.pos.z);
                 enemy.mesh.rotation.y = state.rot;
                 if (enemy.setAnimationAction && state.action && enemy.currentAction !== state.action) {
@@ -549,6 +555,8 @@ export class Game {
             Object.values(this.remotePlayers).forEach(p => p.update(delta));
             this.bullets.forEach(b => b.update(delta));
             this.bullets = this.bullets.filter(b => b.alive);
+            this.projectiles.forEach(p => p.update(delta));
+            this.projectiles = this.projectiles.filter(p => p.alive);
             this.enemies.forEach(e => e.update(delta));
             if (this.miniMap) this.miniMap.update();
 
