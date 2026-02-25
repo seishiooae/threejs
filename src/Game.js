@@ -12,6 +12,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { TGALoader } from 'three/examples/jsm/loaders/TGALoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { HomingMissile } from './HomingMissile.js';
+import { VFXManager } from './VFXManager.js';
 
 export class Game {
     constructor() {
@@ -55,6 +56,9 @@ export class Game {
         // Initialize Rapier.js Physics
         this.physicsManager = new PhysicsManager();
         await this.physicsManager.init();
+
+        // Initialize VFX particle system
+        this.vfx = new VFXManager(this.scene);
 
         // Start animation immediately so the screen doesn't stay black
         this.animate();
@@ -294,6 +298,9 @@ export class Game {
 
     handleShoot() {
         const { origin, direction, networkOrigin } = this.player.shoot();
+
+        // Muzzle flash VFX at the gun barrel position (wrapped in try/catch to never break shooting)
+        try { if (this.vfx) this.vfx.muzzleFlash(origin); } catch (e) { console.warn('VFX muzzleFlash error:', e); }
         const bullet = new Bullet(this.scene, origin, direction);
         this.bullets.push(bullet);
 
@@ -559,6 +566,7 @@ export class Game {
             this.projectiles = this.projectiles.filter(p => p.alive);
             this.enemies.forEach(e => e.update(delta));
             if (this.miniMap) this.miniMap.update();
+            if (this.vfx) this.vfx.update(delta);
 
             // Update Physics (Ragdoll)
             if (this.physicsManager) {

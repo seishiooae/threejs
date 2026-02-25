@@ -224,13 +224,16 @@ export class Enemy {
                         const missile = new HomingMissile(this.game, spawnPos, target, missileOptions);
                         this.game.projectiles.push(missile);
 
+                        // Missile launch VFX
+                        try { if (this.game.vfx) this.game.vfx.missileLaunch(spawnPos); } catch (e) { console.warn('VFX missileLaunch error:', e); }
+
                         // Play launch audio per user request
                         const launchAudio = new Audio('/models/enemy/game_explosion7.WAV');
                         launchAudio.volume = 0.3; // Lower volume so 3 rapid shots don't blow out the speakers
                         launchAudio.play().catch(e => console.log('Missile launch audio failed:', e));
 
                         volleyCount++;
-                    }, 100); // 100ms between each missile for a tight stream
+                    }, 500); // 500ms between each missile so each one is visually distinct
                 }
             }
         }
