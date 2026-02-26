@@ -177,6 +177,13 @@ export class Enemy {
         // Set red flash effect visually
         this.flashRed();
 
+        // Play hurt voice
+        try {
+            const hurtSound = new Audio('/models/enemy/devil_scared2.WAV');
+            hurtSound.volume = 0.5;
+            hurtSound.play().catch(e => console.log('Hurt sound failed:', e));
+        } catch (e) { /* ignore */ }
+
         if (this.health <= 0) {
             this.die();
         } else {

@@ -140,15 +140,12 @@ export class HomingMissile {
                     emissionBursts: [],
                     shape: new Q.SphereEmitter({ radius: 0.05, arc: Math.PI * 2, thickness: 1 }),
                     material: new THREE.MeshBasicMaterial({
-                        map: this.game.vfx.texture,
+                        map: this.game.vfx.fireGlowTex,
                         blending: THREE.AdditiveBlending,
                         transparent: true,
                         side: THREE.DoubleSide,
                         depthWrite: false,
                     }),
-                    startTileIndex: new Q.ConstantValue(91),
-                    uTileCount: 10,
-                    vTileCount: 10,
                     renderMode: Q.RenderMode.BillBoard,
                     renderOrder: 1,
                     autoDestroy: false,
@@ -158,7 +155,6 @@ export class HomingMissile {
                     new THREE.Vector4(1, 0.7, 0.15, 1),
                     new THREE.Vector4(1, 0.1, 0.0, 0)
                 )));
-                this.trailFire.addBehavior(new Q.FrameOverLife(new Q.PiecewiseBezier([[new Q.Bezier(91, 94, 97, 100), 0]])));
                 this.trailFire.addBehavior(new Q.RotationOverLife(new Q.IntervalValue(-Math.PI / 2, Math.PI / 2)));
                 this.mesh.add(this.trailFire.emitter);
                 this.game.vfx.batchRenderer.addSystem(this.trailFire);
@@ -180,15 +176,12 @@ export class HomingMissile {
                     emissionBursts: [],
                     shape: new Q.ConeEmitter({ radius: 0.03, arc: Math.PI * 2, thickness: 1, angle: 0.3 }),
                     material: new THREE.MeshBasicMaterial({
-                        map: this.game.vfx.texture,
+                        map: this.game.vfx.sparkTex,
                         blending: THREE.AdditiveBlending,
                         transparent: true,
                         side: THREE.DoubleSide,
                         depthWrite: false,
                     }),
-                    startTileIndex: new Q.ConstantValue(0),
-                    uTileCount: 10,
-                    vTileCount: 10,
                     renderMode: Q.RenderMode.StretchedBillBoard,
                     speedFactor: 0.5,
                     renderOrder: 2,
@@ -200,45 +193,41 @@ export class HomingMissile {
                 this.mesh.add(this.trailSparks.emitter);
                 this.game.vfx.batchRenderer.addSystem(this.trailSparks);
 
-                // ── Layer 3: Thick SMOKE trail ──────────────────────────────
+                // ── Layer 3: Thick SMOKE trail (very visible!) ────────────────
                 this.trailSmoke = new Q.ParticleSystem({
                     duration: 10,
                     looping: true,
-                    startLife: new Q.IntervalValue(0.4, 0.9),
-                    startSpeed: new Q.IntervalValue(0.2, 1.5),
-                    startSize: new Q.IntervalValue(0.3, 0.7),
+                    startLife: new Q.IntervalValue(0.6, 1.3),
+                    startSpeed: new Q.IntervalValue(0.3, 2),
+                    startSize: new Q.IntervalValue(0.5, 1.5),
                     startRotation: new Q.IntervalValue(-Math.PI, Math.PI),
                     startColor: new Q.RandomColor(
-                        new THREE.Vector4(0.5, 0.5, 0.5, 0.3),
-                        new THREE.Vector4(0.8, 0.8, 0.8, 0.5)
+                        new THREE.Vector4(0.6, 0.6, 0.6, 0.5),
+                        new THREE.Vector4(0.9, 0.9, 0.9, 0.8)
                     ),
                     worldSpace: true,
-                    maxParticle: 60,
-                    emissionOverTime: new Q.ConstantValue(40),
+                    maxParticle: 120,
+                    emissionOverTime: new Q.ConstantValue(80),
                     emissionBursts: [],
-                    shape: new Q.SphereEmitter({ radius: 0.08, arc: Math.PI * 2, thickness: 1 }),
+                    shape: new Q.SphereEmitter({ radius: 0.12, arc: Math.PI * 2, thickness: 1 }),
                     material: new THREE.MeshBasicMaterial({
-                        map: this.game.vfx.texture,
+                        map: this.game.vfx.smokeTex,
                         blending: THREE.NormalBlending,
                         transparent: true,
                         side: THREE.DoubleSide,
                         depthWrite: false,
                     }),
-                    startTileIndex: new Q.ConstantValue(81),
-                    uTileCount: 10,
-                    vTileCount: 10,
                     renderMode: Q.RenderMode.BillBoard,
                     renderOrder: -1,
                     autoDestroy: false,
                 });
                 this.trailSmoke.addBehavior(new Q.ColorOverLife(new Q.ColorRange(
-                    new THREE.Vector4(1, 1, 1, 0.5),
-                    new THREE.Vector4(0.6, 0.6, 0.6, 0)
+                    new THREE.Vector4(1, 1, 1, 0.7),
+                    new THREE.Vector4(0.5, 0.5, 0.5, 0)
                 )));
-                this.trailSmoke.addBehavior(new Q.SizeOverLife(new Q.PiecewiseBezier([[new Q.Bezier(0.4, 1, 1, 0.7), 0]])));
-                this.trailSmoke.addBehavior(new Q.RotationOverLife(new Q.IntervalValue(-Math.PI / 4, Math.PI / 4)));
-                this.trailSmoke.addBehavior(new Q.FrameOverLife(new Q.PiecewiseBezier([[new Q.Bezier(28, 31, 34, 37), 0]])));
-                this.trailSmoke.addBehavior(new Q.ApplyForce(new THREE.Vector3(0, 2, 0), new Q.ConstantValue(1)));
+                this.trailSmoke.addBehavior(new Q.SizeOverLife(new Q.PiecewiseBezier([[new Q.Bezier(0.3, 0.8, 1, 0.9), 0]])));
+                this.trailSmoke.addBehavior(new Q.RotationOverLife(new Q.IntervalValue(-Math.PI / 3, Math.PI / 3)));
+                this.trailSmoke.addBehavior(new Q.ApplyForce(new THREE.Vector3(0, 3, 0), new Q.ConstantValue(1)));
                 this.mesh.add(this.trailSmoke.emitter);
                 this.game.vfx.batchRenderer.addSystem(this.trailSmoke);
 
@@ -338,26 +327,7 @@ export class HomingMissile {
             this.explosionSound.play().catch(e => console.log('Explosion sound failed:', e));
         }
 
-        // Create visual effect
-        this.game.createHitEffect(this.mesh.position, new THREE.Vector3(0, 1, 0), 0xffaa00);
-        // Larger explosion effect
-        const explosionGeom = new THREE.SphereGeometry(this.explosionRadius, 16, 16);
-        const explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.8 });
-        const explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
-        explosionMesh.position.copy(this.mesh.position);
-        this.game.scene.add(explosionMesh);
-
-        // Animate explosion fading
-        let scale = 1;
-        const fadeInterval = setInterval(() => {
-            scale += 0.2;
-            explosionMesh.scale.setScalar(scale);
-            explosionMat.opacity -= 0.1;
-            if (explosionMat.opacity <= 0) {
-                clearInterval(fadeInterval);
-                this.game.scene.remove(explosionMesh);
-            }
-        }, 30);
+        // Old orange sphere removed — three.quarks VFX explosion handles everything now
 
         // Calculate Damage & Knockback for local player
         if (this.targetPlayer === this.game.player && !this.targetPlayer.isDead) {
