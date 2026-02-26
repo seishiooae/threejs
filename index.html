@@ -28,7 +28,32 @@
   <div id="ui-layer">
     <div id="hud-top">
       <canvas id="minimap" width="200" height="200"
-        style="background: rgba(0,0,0,0.5); border: 2px solid #555; position: absolute; top: 10px; right: 10px;"></canvas>
+        style="background: rgba(0,0,0,0.5); border: 2px solid #555; position: absolute; top: 10px; left: 10px;"></canvas>
+
+      <!-- Enemy Health Bars (top-right) -->
+      <div id="enemy-hp-container">
+        <div class="enemy-hp-bar" id="enemy-hp-0" style="display: none;">
+          <div class="enemy-hp-label">ENEMY 1</div>
+          <div class="enemy-hp-track">
+            <div class="enemy-hp-fill"></div>
+            <span class="enemy-hp-text">100%</span>
+          </div>
+        </div>
+        <div class="enemy-hp-bar" id="enemy-hp-1" style="display: none;">
+          <div class="enemy-hp-label">ENEMY 2</div>
+          <div class="enemy-hp-track">
+            <div class="enemy-hp-fill"></div>
+            <span class="enemy-hp-text">100%</span>
+          </div>
+        </div>
+        <div class="enemy-hp-bar" id="enemy-hp-2" style="display: none;">
+          <div class="enemy-hp-label">ENEMY 3</div>
+          <div class="enemy-hp-track">
+            <div class="enemy-hp-fill"></div>
+            <span class="enemy-hp-text">100%</span>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="hud-bottom">
       <div id="health-bar-container">

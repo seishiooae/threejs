@@ -53,6 +53,9 @@ export class Enemy {
         // Audio
         this.hitAudio = new Audio('/models/enemy/punch_robot.WAV');
         this.deathAudio = new Audio('/models/enemy/devil_scared2.WAV');
+
+        // Health bar (shown on first damage, DOM overlay in top-right)
+        this.healthBarVisible = false;
     }
 
     createPlaceholder() {
@@ -184,6 +187,9 @@ export class Enemy {
             hurtSound.play().catch(e => console.log('Hurt sound failed:', e));
         } catch (e) { /* ignore */ }
 
+        // Show & update health bar
+        this._showHealthBar();
+
         if (this.health <= 0) {
             this.die();
         } else {
@@ -285,6 +291,9 @@ export class Enemy {
             this.placeholder = null;
         }
 
+        // Remove health bar
+        this._removeHealthBar();
+
         // Keep the dead body visible on the ground for 10 seconds before deleting to save memory
         setTimeout(() => {
             if (this.game && this.game.scene && this.mesh) {
@@ -295,6 +304,9 @@ export class Enemy {
 
     update(delta) {
         if (!this.mesh) return;
+
+        // Fade out health bar after duration
+        this._updateHealthBarVisibility(delta);
 
         // Animations must always run for both Host and Client
         if (this.mixer) {
@@ -534,7 +546,7 @@ export class Enemy {
         // Apply X movement with Wall Collision
         const startPos = this.mesh.position.clone();
         this.mesh.position.x += moveVec.x;
-        // 判定球を 0.5 -> 0.85 に拡大し、壁に深くめり込んでスタックするのを防ぐ
+        // 蛻�E�螳夂帥繧・0.5 -> 0.85 縺�E�諡�E�螟ｧ縺励∝｣√�E豺�E�縺上ａ繧願ｾ�E�繧薙〒繧�E�繧�E�繝�Eけ縺吶�E�縺�E�繧帝亟縺・
         const enemySphereX = new THREE.Sphere(this.mesh.position.clone(), 0.85);
         for (const wall of walls) {
             wall.geometry.computeBoundingBox();
@@ -655,5 +667,54 @@ export class Enemy {
         } catch (e) {
             console.warn("Audio playback failed:", e);
         }
+    }
+
+    // 笏笏 Health Bar (DOM overlay in top-right) 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+
+    /** Get the index of this enemy in game.enemies array */
+    _getEnemyIndex() {
+        if (!this.game || !this.game.enemies) return -1;
+        return this.game.enemies.indexOf(this);
+    }
+
+    _showHealthBar() {
+        const idx = this._getEnemyIndex();
+        if (idx < 0) return;
+        const el = document.getElementById(`enemy-hp-${idx}`);
+        if (!el) return;
+
+        const pct = Math.max(0, (this.health / this.maxHealth) * 100);
+
+        el.style.display = 'block';
+        const fill = el.querySelector('.enemy-hp-fill');
+        const text = el.querySelector('.enemy-hp-text');
+
+        if (fill) {
+            fill.style.width = pct + '%';
+            if (pct > 50) {
+                fill.style.background = 'linear-gradient(180deg, #44ff44 0%, #22aa22 100%)';
+            } else if (pct > 25) {
+                fill.style.background = 'linear-gradient(180deg, #ff8800 0%, #cc6600 100%)';
+            } else {
+                fill.style.background = 'linear-gradient(180deg, #ff2222 0%, #880000 100%)';
+            }
+        }
+        if (text) {
+            text.textContent = Math.round(pct) + '%';
+        }
+
+        this.healthBarVisible = true;
+    }
+
+    _removeHealthBar() {
+        const idx = this._getEnemyIndex();
+        if (idx < 0) return;
+        const el = document.getElementById(`enemy-hp-${idx}`);
+        if (el) el.style.display = 'none';
+        this.healthBarVisible = false;
+    }
+
+    _updateHealthBarVisibility(delta) {
+        // Health bars stay visible once shown (removed auto-hide)
     }
 }
