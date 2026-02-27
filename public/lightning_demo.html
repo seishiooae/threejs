@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>⚡ Lightning Bolt VFX Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #flash-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 100;
+            transition: opacity 0.05s;
+        }
+
+        #ui {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #aaa;
+            font-size: 14px;
+            text-align: center;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 12px 24px;
+            border-radius: 8px;
+        }
+
+        #ui button {
+            background: #4488ff;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 6px;
+            margin: 6px;
+        }
+
+        #ui button:hover {
+            background: #5599ff;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="flash-overlay"></div>
+    <div id="ui">
+        <div>⚡ Lightning Bolt VFX Demo</div>
+        <button id="btn-strike">落雷を発生させる (STRIKE)</button>
+        <button id="btn-auto">自動連続 (AUTO)</button>
+    </div>
+
+    <script type="importmap">
+  {
+    "imports": {
+      "three": "/node_modules/three/build/three.module.js",
+      "three/addons/": "/node_modules/three/examples/jsm/"
+    }
+  }
+  </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ── Scene Setup ──────────────────────────────────────────────
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a1a);
+        scene.fog = new THREE.FogExp2(0x0a0a1a, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
+        camera.position.set(15, 12, 25);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 5, 0);
+        controls.enableDamping = true;
+        controls.update();
+
+        // ── Ground ────────────────────────────────────────────────────
+        const groundGeo = new THREE.PlaneGeometry(80, 80);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x222233, roughness: 0.9 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Grid helper
+        const grid = new THREE.GridHelper(80, 40, 0x333355, 0x222244);
+        scene.add(grid);
+
+        // ── Lights ────────────────────────────────────────────────────
+        const ambient = new THREE.AmbientLight(0x334466, 0.3);
+        scene.add(ambient);
+
+        const dirLight = new THREE.DirectionalLight(0x556688, 0.4);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        // Dynamic point light for lightning flash
+        const flashLight = new THREE.PointLight(0x88aaff, 0, 100);
+        flashLight.position.set(0, 15, 0);
+        scene.add(flashLight);
+
+        // ── Lightning Bolt System ─────────────────────────────────────
+        class LightningBolt {
+            constructor(scene) {
+                this.scene = scene;
+                this.bolts = [];       // main + branches
+                this.glowBolts = [];   // thick glow layer
+                this.sparks = [];      // impact sparks
+                this.active = false;
+                this.lifetime = 0;
+                this.maxLifetime = 0.4; // seconds
+                this.flickerTimer = 0;
+                this.flickerInterval = 0.04; // re-randomize every 40ms
+                this.strikePos = new THREE.Vector3(0, 0, 0);
+                this.impactGroup = new THREE.Group();
+                scene.add(this.impactGroup);
+            }
+
+            /** Generate a zigzag path from start to end */
+            _generateBoltPath(start, end, segments = 12, jitter = 2.5) {
+                const points = [start.clone()];
+                const dir = new THREE.Vector3().subVectors(end, start);
+                const len = dir.length();
+                dir.normalize();
+
+                for (let i = 1; i < segments; i++) {
+                    const t = i / segments;
+                    const p = new THREE.Vector3().lerpVectors(start, end, t);
+
+                    // Random perpendicular offset (zigzag!)
+                    const perp1 = new THREE.Vector3(-dir.z, 0, dir.x); // horizontal perp
+                    const perp2 = new THREE.Vector3(0, 1, 0).cross(dir).normalize(); // another perp
+
+                    const offsetScale = jitter * Math.sin(t * Math.PI); // bigger in middle
+                    p.x += (Math.random() - 0.5) * 2 * offsetScale;
+                    p.z += (Math.random() - 0.5) * 2 * offsetScale;
+                    // Slight y jitter
+                    p.y += (Math.random() - 0.5) * jitter * 0.3;
+
+                    points.push(p);
+                }
+                points.push(end.clone());
+                return points;
+            }
+
+            /** Create a line mesh from points */
+            _createBoltLine(points, color, linewidth = 1, opacity = 1) {
+                const geo = new THREE.BufferGeometry().setFromPoints(points);
+                const mat = new THREE.LineBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                });
+                const line = new THREE.Line(geo, mat);
+                this.scene.add(line);
+                return line;
+            }
+
+            /** Create a thick glowing tube around the bolt path */
+            _createGlowTube(points, color, radius = 0.15, opacity = 0.4) {
+                const curve = new THREE.CatmullRomCurve3(points);
+                const geo = new THREE.TubeGeometry(curve, points.length * 2, radius, 6, false);
+                const mat = new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                this.scene.add(mesh);
+                return mesh;
+            }
+
+            /** Create impact sparks at ground level */
+            _createImpactSparks(pos) {
+                // Clear old sparks
+                while (this.impactGroup.children.length > 0) {
+                    const c = this.impactGroup.children[0];
+                    c.geometry?.dispose();
+                    c.material?.dispose();
+                    this.impactGroup.remove(c);
+                }
+
+                // Ground ring flash
+                const ringGeo = new THREE.RingGeometry(0.5, 3, 32);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: 0x88ccff, transparent: true, opacity: 0.8,
+                    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.position.copy(pos);
+                ring.position.y = 0.05;
+                ring.rotation.x = -Math.PI / 2;
+                this.impactGroup.add(ring);
+
+                // Radial spark lines
+                for (let i = 0; i < 16; i++) {
+                    const angle = (i / 16) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+                    const len = 1.5 + Math.random() * 3;
+                    const sparkPoints = [];
+                    const segs = 4 + Math.floor(Math.random() * 3);
+                    for (let j = 0; j <= segs; j++) {
+                        const t = j / segs;
+                        sparkPoints.push(new THREE.Vector3(
+                            pos.x + Math.cos(angle) * len * t + (Math.random() - 0.5) * 0.3,
+                            0.1 + Math.random() * 0.5 * (1 - t),
+                            pos.z + Math.sin(angle) * len * t + (Math.random() - 0.5) * 0.3,
+                        ));
+                    }
+                    const sparkGeo = new THREE.BufferGeometry().setFromPoints(sparkPoints);
+                    const sparkMat = new THREE.LineBasicMaterial({
+                        color: new THREE.Color().setHSL(0.58 + Math.random() * 0.08, 0.9, 0.7 + Math.random() * 0.3),
+                        transparent: true, opacity: 0.9,
+                        blending: THREE.AdditiveBlending, depthWrite: false,
+                    });
+                    const sparkLine = new THREE.Line(sparkGeo, sparkMat);
+                    this.impactGroup.add(sparkLine);
+                }
+
+                // Ground scorch glow
+                const glowGeo = new THREE.CircleGeometry(2, 32);
+                const glowMat = new THREE.MeshBasicMaterial({
+                    color: 0x4488ff, transparent: true, opacity: 0.6,
+                    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+                });
+                const glow = new THREE.Mesh(glowGeo, glowMat);
+                glow.position.copy(pos);
+                glow.position.y = 0.02;
+                glow.rotation.x = -Math.PI / 2;
+                this.impactGroup.add(glow);
+            }
+
+            /** STRIKE! Generate a full lightning bolt */
+            strike(targetPos) {
+                this.cleanup();
+
+                this.strikePos.copy(targetPos);
+                const skyPos = new THREE.Vector3(
+                    targetPos.x + (Math.random() - 0.5) * 6,
+                    40 + Math.random() * 15,
+                    targetPos.z + (Math.random() - 0.5) * 6
+                );
+
+                this.active = true;
+                this.lifetime = 0;
+
+                this._buildBolt(skyPos, targetPos);
+
+                // Impact effects
+                this._createImpactSparks(targetPos);
+
+                // Flash light
+                flashLight.position.copy(targetPos);
+                flashLight.position.y = 10;
+                flashLight.intensity = 30;
+                flashLight.color.setHex(0x88aaff);
+
+                // Screen flash
+                const flash = document.getElementById('flash-overlay');
+                flash.style.opacity = '0.8';
+                setTimeout(() => flash.style.transition = 'opacity 0.3s', 50);
+                setTimeout(() => flash.style.opacity = '0', 80);
+                setTimeout(() => flash.style.transition = 'opacity 0.05s', 400);
+
+                // Camera shake
+                this._shakeCamera();
+            }
+
+            _buildBolt(skyPos, targetPos) {
+                // Main bolt (bright core)
+                const mainPath = this._generateBoltPath(skyPos, targetPos, 14, 3.0);
+                this.bolts.push(this._createBoltLine(mainPath, 0xffffff, 2, 1.0));
+
+                // Glow tube around main bolt
+                this.glowBolts.push(this._createGlowTube(mainPath, 0x6688ff, 0.3, 0.5));
+                this.glowBolts.push(this._createGlowTube(mainPath, 0x4466cc, 0.7, 0.2));
+
+                // Secondary thinner core
+                const mainPath2 = this._generateBoltPath(skyPos, targetPos, 10, 2.0);
+                this.bolts.push(this._createBoltLine(mainPath2, 0xaaccff, 1, 0.7));
+
+                // Branch bolts (fork off from random mid-points)
+                for (let i = 0; i < mainPath.length; i++) {
+                    if (Math.random() < 0.35 && i > 2 && i < mainPath.length - 2) {
+                        const branchStart = mainPath[i].clone();
+                        const branchEnd = branchStart.clone().add(new THREE.Vector3(
+                            (Math.random() - 0.5) * 10,
+                            -(2 + Math.random() * 6),
+                            (Math.random() - 0.5) * 10,
+                        ));
+                        const branchPath = this._generateBoltPath(branchStart, branchEnd, 5, 1.5);
+                        this.bolts.push(this._createBoltLine(branchPath, 0x88aaff, 1, 0.6));
+                        this.glowBolts.push(this._createGlowTube(branchPath, 0x4466cc, 0.15, 0.25));
+
+                        // Sub-branches (smaller forks from branches)
+                        if (Math.random() < 0.4 && branchPath.length > 2) {
+                            const subStart = branchPath[Math.floor(branchPath.length / 2)].clone();
+                            const subEnd = subStart.clone().add(new THREE.Vector3(
+                                (Math.random() - 0.5) * 5,
+                                -(1 + Math.random() * 3),
+                                (Math.random() - 0.5) * 5,
+                            ));
+                            const subPath = this._generateBoltPath(subStart, subEnd, 3, 0.8);
+                            this.bolts.push(this._createBoltLine(subPath, 0x6688cc, 1, 0.4));
+                        }
+                    }
+                }
+            }
+
+            _shakeCamera() {
+                const origPos = camera.position.clone();
+                let shakeTime = 0;
+                const shakeInterval = setInterval(() => {
+                    shakeTime += 0.02;
+                    if (shakeTime > 0.3) {
+                        camera.position.copy(origPos);
+                        clearInterval(shakeInterval);
+                        return;
+                    }
+                    const intensity = 0.3 * (1 - shakeTime / 0.3);
+                    camera.position.x = origPos.x + (Math.random() - 0.5) * intensity;
+                    camera.position.y = origPos.y + (Math.random() - 0.5) * intensity;
+                }, 20);
+            }
+
+            /** Re-randomize the bolt shape (flicker effect) */
+            _flicker() {
+                // Remove old bolt lines
+                for (const b of this.bolts) { this.scene.remove(b); b.geometry?.dispose(); b.material?.dispose(); }
+                for (const g of this.glowBolts) { this.scene.remove(g); g.geometry?.dispose(); g.material?.dispose(); }
+                this.bolts = [];
+                this.glowBolts = [];
+
+                // Rebuild with new random path
+                const skyPos = new THREE.Vector3(
+                    this.strikePos.x + (Math.random() - 0.5) * 4,
+                    40 + Math.random() * 15,
+                    this.strikePos.z + (Math.random() - 0.5) * 4
+                );
+                this._buildBolt(skyPos, this.strikePos);
+            }
+
+            /** Call every frame */
+            update(delta) {
+                if (!this.active) return;
+
+                this.lifetime += delta;
+
+                // Flicker: re-randomize bolt path periodically
+                this.flickerTimer += delta;
+                if (this.flickerTimer >= this.flickerInterval) {
+                    this.flickerTimer = 0;
+                    if (this.lifetime < this.maxLifetime * 0.7) {
+                        this._flicker();
+                    }
+                }
+
+                // Fade out
+                const fadeT = Math.max(0, 1 - this.lifetime / this.maxLifetime);
+
+                for (const b of this.bolts) {
+                    if (b.material) b.material.opacity = fadeT;
+                }
+                for (const g of this.glowBolts) {
+                    if (g.material) g.material.opacity = fadeT * 0.4;
+                }
+
+                // Flash light fade
+                flashLight.intensity = 30 * fadeT * fadeT;
+
+                // Impact sparks fade
+                this.impactGroup.children.forEach(c => {
+                    if (c.material) c.material.opacity = fadeT;
+                });
+
+                // Done?
+                if (this.lifetime >= this.maxLifetime) {
+                    this.cleanup();
+                }
+            }
+
+            cleanup() {
+                for (const b of this.bolts) { this.scene.remove(b); b.geometry?.dispose(); b.material?.dispose(); }
+                for (const g of this.glowBolts) { this.scene.remove(g); g.geometry?.dispose(); g.material?.dispose(); }
+                this.bolts = [];
+                this.glowBolts = [];
+                this.active = false;
+                flashLight.intensity = 0;
+
+                while (this.impactGroup.children.length > 0) {
+                    const c = this.impactGroup.children[0];
+                    c.geometry?.dispose();
+                    c.material?.dispose();
+                    this.impactGroup.remove(c);
+                }
+            }
+        }
+
+        // ── Warning Circle (ground target indicator before strike) ────
+        class WarningCircle {
+            constructor(scene) {
+                this.scene = scene;
+                this.mesh = null;
+                this.active = false;
+                this.timer = 0;
+                this.duration = 1.0; // seconds of warning before strike
+                this.pos = new THREE.Vector3();
+                this.onComplete = null;
+            }
+
+            show(pos, onComplete) {
+                this.cleanup();
+                this.pos.copy(pos);
+                this.active = true;
+                this.timer = 0;
+                this.onComplete = onComplete;
+
+                // Outer pulsing ring
+                const ringGeo = new THREE.RingGeometry(1.5, 2.0, 32);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: 0xff4444, transparent: true, opacity: 0.6,
+                    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+                });
+                this.mesh = new THREE.Mesh(ringGeo, ringMat);
+                this.mesh.position.set(pos.x, 0.05, pos.z);
+                this.mesh.rotation.x = -Math.PI / 2;
+                this.scene.add(this.mesh);
+
+                // Inner fill
+                const fillGeo = new THREE.CircleGeometry(1.5, 32);
+                const fillMat = new THREE.MeshBasicMaterial({
+                    color: 0xff2222, transparent: true, opacity: 0.15,
+                    blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+                });
+                this.innerMesh = new THREE.Mesh(fillGeo, fillMat);
+                this.innerMesh.position.set(pos.x, 0.03, pos.z);
+                this.innerMesh.rotation.x = -Math.PI / 2;
+                this.scene.add(this.innerMesh);
+            }
+
+            update(delta) {
+                if (!this.active) return;
+                this.timer += delta;
+
+                // Pulse effect
+                const pulse = 1 + Math.sin(this.timer * 12) * 0.15;
+                if (this.mesh) {
+                    this.mesh.scale.setScalar(pulse);
+                    this.mesh.material.opacity = 0.4 + Math.sin(this.timer * 8) * 0.3;
+                }
+                if (this.innerMesh) {
+                    this.innerMesh.material.opacity = 0.1 + (this.timer / this.duration) * 0.3;
+                    this.innerMesh.scale.setScalar(pulse * 0.9);
+                }
+
+                if (this.timer >= this.duration) {
+                    const pos = this.pos.clone();
+                    this.cleanup();
+                    if (this.onComplete) this.onComplete(pos);
+                }
+            }
+
+            cleanup() {
+                if (this.mesh) { this.scene.remove(this.mesh); this.mesh.geometry?.dispose(); this.mesh.material?.dispose(); this.mesh = null; }
+                if (this.innerMesh) { this.scene.remove(this.innerMesh); this.innerMesh.geometry?.dispose(); this.innerMesh.material?.dispose(); this.innerMesh = null; }
+                this.active = false;
+            }
+        }
+
+        // ── Initialize ────────────────────────────────────────────────
+        const lightning = new LightningBolt(scene);
+        const warning = new WarningCircle(scene);
+
+        // Thunder sound
+        let thunderAudio = null;
+        try {
+            thunderAudio = new Audio('/models/enemy/game_explosion7.WAV'); // placeholder
+            thunderAudio.volume = 0.7;
+        } catch (e) { }
+
+        function doStrike(pos) {
+            if (!pos) {
+                pos = new THREE.Vector3(
+                    (Math.random() - 0.5) * 15,
+                    0,
+                    (Math.random() - 0.5) * 15
+                );
+            }
+            warning.show(pos, (strikePos) => {
+                lightning.strike(strikePos);
+                if (thunderAudio) {
+                    thunderAudio.currentTime = 0;
+                    thunderAudio.play().catch(() => { });
+                }
+            });
+        }
+
+        // ── UI Controls ───────────────────────────────────────────────
+        document.getElementById('btn-strike').addEventListener('click', () => {
+            doStrike();
+        });
+
+        let autoMode = false;
+        let autoTimer = 0;
+        document.getElementById('btn-auto').addEventListener('click', (e) => {
+            autoMode = !autoMode;
+            e.target.textContent = autoMode ? '自動停止 (STOP)' : '自動連続 (AUTO)';
+            e.target.style.background = autoMode ? '#ff4444' : '#4488ff';
+        });
+
+        // ── Some decoration pillars ──────────────────────────────────
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            const r = 12;
+            const pillarGeo = new THREE.CylinderGeometry(0.4, 0.5, 4, 8);
+            const pillarMat = new THREE.MeshStandardMaterial({ color: 0x445566, roughness: 0.7 });
+            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+            pillar.position.set(Math.cos(angle) * r, 2, Math.sin(angle) * r);
+            scene.add(pillar);
+        }
+
+        // ── Render Loop ───────────────────────────────────────────────
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            controls.update();
+            lightning.update(delta);
+            warning.update(delta);
+
+            // Auto mode
+            if (autoMode) {
+                autoTimer += delta;
+                if (autoTimer > 2.5) {
+                    autoTimer = 0;
+                    doStrike();
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        });
+    </script>
+</body>
+
+</html>
