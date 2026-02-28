@@ -124,8 +124,13 @@ export class BossEnemy {
 
         // Auto-center feet to Ground
         this.modelWrapper.updateMatrixWorld(true);
-        // We ensure the mesh sits directly on the floor without arbitrary Box3-based lifting
-        this.modelWrapper.position.y = 0.0;
+        const box = new THREE.Box3().setFromObject(this.modelWrapper);
+        // We add the absolute value of the lowest point to shift the model up so feet sit on Y=0
+        if (box.min.y < 0) {
+            this.modelWrapper.position.y = Math.abs(box.min.y);
+        } else {
+            this.modelWrapper.position.y = 0;
+        }
 
         // Apply hostile dark material and TGA Texture
         object.traverse((child) => {

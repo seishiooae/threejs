@@ -180,68 +180,69 @@ export class Enemy {
         // Show & update health bar
         this._showHealthBar();
 
+        // COUNTER ATTACK: Spawns 3 Homing Missiles with a short delay
+        // BOTH Host and Client spawn their own visual missiles to save network bandwidth.
+        // We use shooterId to make sure the missiles track the actual player who fired the bullet.
+        let target = this.game.player;
+        if (shooterId && this.game.networkManager && shooterId !== this.game.networkManager.id) {
+            if (this.game.remotePlayers[shooterId]) {
+                target = this.game.remotePlayers[shooterId];
+            }
+        }
+
+        if (target) {
+            const now = performance.now();
+            // 3000ms cooldown for missile barrage
+            if (!this.lastMissileTime || now - this.lastMissileTime > 3000) {
+                this.lastMissileTime = now;
+
+                // Pre-calculate shared trajectory for the 3-missile stream
+                const isAccurate = Math.random() < 0.9;
+                const missOffset = new THREE.Vector3();
+                if (!isAccurate) {
+                    missOffset.set(
+                        (Math.random() - 0.5) * 15,
+                        (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 15
+                    );
+                }
+                const sign = Math.random() > 0.5 ? 1 : -1;
+                const launchAngle = sign * (Math.PI / 4 + Math.random() * Math.PI / 4);
+                const missileOptions = { isAccurate, missOffset, launchAngle };
+
+                let volleyCount = 0;
+                const fireHomingMissile = () => {
+                    // Allow firing 3 missiles even if the enemy died from this shot
+                    if (volleyCount >= 3) return;
+
+                    // Spawn missile slightly above Enemy chest
+                    const spawnPos = this.mesh.position.clone();
+                    spawnPos.y += 1.5;
+
+                    const missile = new HomingMissile(this.game, spawnPos, target, missileOptions);
+                    this.game.projectiles.push(missile);
+
+                    // Missile launch VFX
+                    try { if (this.game.vfx) this.game.vfx.missileLaunch(spawnPos); } catch (e) { console.warn('VFX missileLaunch error:', e); }
+
+                    // Play launch audio per user request
+                    const launchAudio = new Audio('/models/enemy/game_explosion7.WAV');
+                    launchAudio.volume = 0.3; // Lower volume so 3 rapid shots don't blow out the speakers
+                    launchAudio.play().catch(e => console.log('Missile launch audio failed:', e));
+
+                    volleyCount++;
+                    if (volleyCount < 3) {
+                        setTimeout(fireHomingMissile, 500);
+                    }
+                };
+
+                // Fire first missile instantly so fast-firing weapons don't kill it before the 500ms delay
+                fireHomingMissile();
+            }
+        }
+
         if (this.health <= 0) {
             this.die();
-        } else {
-            // COUNTER ATTACK: Spawns 3 Homing Missiles with a short delay
-            // BOTH Host and Client spawn their own visual missiles to save network bandwidth.
-            // We use shooterId to make sure the missiles track the actual player who fired the bullet.
-            let target = this.game.player;
-            if (shooterId && this.game.networkManager && shooterId !== this.game.networkManager.id) {
-                if (this.game.remotePlayers[shooterId]) {
-                    target = this.game.remotePlayers[shooterId];
-                }
-            }
-
-            if (target) {
-                const now = performance.now();
-                // 3000ms cooldown for missile barrage
-                if (!this.lastMissileTime || now - this.lastMissileTime > 3000) {
-                    this.lastMissileTime = now;
-
-                    // Pre-calculate shared trajectory for the 3-missile stream
-                    const isAccurate = Math.random() < 0.9;
-                    const missOffset = new THREE.Vector3();
-                    if (!isAccurate) {
-                        missOffset.set(
-                            (Math.random() - 0.5) * 15,
-                            (Math.random() - 0.5) * 5,
-                            (Math.random() - 0.5) * 15
-                        );
-                    }
-                    const sign = Math.random() > 0.5 ? 1 : -1;
-                    const launchAngle = sign * (Math.PI / 4 + Math.random() * Math.PI / 4);
-                    const missileOptions = { isAccurate, missOffset, launchAngle };
-
-                    let volleyCount = 0;
-                    const fireHomingMissile = () => {
-                        if (this.isDead || volleyCount >= 3) return;
-
-                        // Spawn missile slightly above Enemy chest
-                        const spawnPos = this.mesh.position.clone();
-                        spawnPos.y += 1.5;
-
-                        const missile = new HomingMissile(this.game, spawnPos, target, missileOptions);
-                        this.game.projectiles.push(missile);
-
-                        // Missile launch VFX
-                        try { if (this.game.vfx) this.game.vfx.missileLaunch(spawnPos); } catch (e) { console.warn('VFX missileLaunch error:', e); }
-
-                        // Play launch audio per user request
-                        const launchAudio = new Audio('/models/enemy/game_explosion7.WAV');
-                        launchAudio.volume = 0.3; // Lower volume so 3 rapid shots don't blow out the speakers
-                        launchAudio.play().catch(e => console.log('Missile launch audio failed:', e));
-
-                        volleyCount++;
-                        if (volleyCount < 3 && !this.isDead) {
-                            setTimeout(fireHomingMissile, 500);
-                        }
-                    };
-
-                    // Fire first missile instantly so fast-firing weapons don't kill it before the 500ms delay
-                    fireHomingMissile();
-                }
-            }
         }
     }
 
