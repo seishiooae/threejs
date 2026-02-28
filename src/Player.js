@@ -447,20 +447,20 @@ export class Player {
             console.log('Auto-load: Main model loaded, loading additional assets...');
             // Load separate Idle animation (run.FBX only has run anim)
             // 2) Load Animations via external files
-            this.loadExternalAnimation('/models/Idle.FBX', 'Idle', undefined, '/models/animations/Idle.fbx');
-            this.loadExternalAnimation('/models/Walking.FBX', 'Walk', undefined, '/models/animations/Walking.fbx');
-            this.loadExternalAnimation('/models/Running.FBX', 'Run', undefined, '/models/animations/Running.fbx');
-            // Removed WalkBack as it's generated from Walk.
+            this.loadExternalAnimation('/models/idle.FBX', 'Idle');
+            this.loadExternalAnimation('/models/walk.FBX', 'Walk');
+            // run.FBX already loaded as base, but this ensures 'Run' clip is linked
+            this.loadExternalAnimation('/models/run.FBX', 'Run');
 
             // Load Shooting Animation (Upper body only)
-            this.loadExternalAnimation('/models/Firing_Rifle.FBX', 'Shoot', (clip) => {
+            this.loadExternalAnimation('/models/shoot.FBX', 'Shoot', (clip) => {
                 return this.createUpperBodyClip(clip, 'Shoot');
-            }, '/models/animations/Firing_Rifle.fbx');
+            });
 
             // Load Hit Reaction Animation (Upper body only)
-            this.loadExternalAnimation('/models/Hit_Reaction.FBX', 'Hit', (clip) => {
+            this.loadExternalAnimation('/models/HitReaction.FBX', 'Hit', (clip) => {
                 return this.createUpperBodyClip(clip, 'Hit');
-            }, '/models/animations/Hit_Reaction.fbx');
+            });
 
             // Load Stun / Get Up Animations
             this.loadExternalAnimation('/models/GettingUpFromBack_Anim.FBX', 'StandUpBack', undefined);
