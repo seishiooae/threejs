@@ -108,9 +108,6 @@ export class Enemy {
         // We add the absolute value of the lowest point to shift the model up so feet sit on Y=0
         this.modelWrapper.position.y = Math.abs(box.min.y) - 0.05; // Slightly lowered so feet touch the ground
 
-        // Hide wrapper initially to prevent the T-Pose flicker (MUST be done after Box3 calculation or geometry may be skipped)
-        this.modelWrapper.visible = false;
-
         // Apply hostile dark material and TGA Texture
         object.traverse((child) => {
             if (child.isMesh) {
@@ -144,13 +141,6 @@ export class Enemy {
             this.animations['Walk'] = walkAction;
             walkAction.play();
             this.currentAction = 'Walk';
-
-            // Reveal the model shortly after the Walking animation starts to hide the T-Pose
-            setTimeout(() => {
-                if (this.modelWrapper && !this.isDead) {
-                    this.modelWrapper.visible = true;
-                }
-            }, 100);
         }
 
         // 2. Swiping/Attack Animation
@@ -546,7 +536,7 @@ export class Enemy {
         // Apply X movement with Wall Collision
         const startPos = this.mesh.position.clone();
         this.mesh.position.x += moveVec.x;
-        // 蛻�E�螳夂帥繧・0.5 -> 0.85 縺�E�諡�E�螟ｧ縺励∝｣√�E豺�E�縺上ａ繧願ｾ�E�繧薙〒繧�E�繧�E�繝�Eけ縺吶�E�縺�E�繧帝亟縺・
+        // 陋ｻ・､陞ｳ螟ょｸ･郢ｧ繝ｻ0.5 -> 0.85 邵ｺ・ｫ隲｡・｡陞滂ｽｧ邵ｺ蜉ｱﾂ竏晢ｽ｣竏壺・雎ｺ・ｱ邵ｺ荳奇ｽ∫ｹｧ鬘假ｽｾ・ｼ郢ｧ阮吶堤ｹｧ・ｹ郢ｧ・ｿ郢昴・縺醍ｸｺ蜷ｶ・狗ｸｺ・ｮ郢ｧ蟶昜ｺ溽ｸｺ繝ｻ
         const enemySphereX = new THREE.Sphere(this.mesh.position.clone(), 0.85);
         for (const wall of walls) {
             wall.geometry.computeBoundingBox();
@@ -669,7 +659,7 @@ export class Enemy {
         }
     }
 
-    // 笏笏 Health Bar (DOM overlay in top-right) 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+    // 隨渉隨渉 Health Bar (DOM overlay in top-right) 隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉隨渉
 
     /** Get the index of this enemy in game.enemies array */
     _getEnemyIndex() {

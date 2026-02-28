@@ -127,9 +127,6 @@ export class BossEnemy {
         // We add the absolute value of the lowest point to shift the model up so feet sit on Y=0
         this.modelWrapper.position.y = Math.abs(box.min.y) - 0.05; // Slightly lowered so feet touch the ground
 
-        // Hide wrapper initially to prevent the T-Pose flicker (MUST be done after Box3 calculation or geometry may be skipped)
-        this.modelWrapper.visible = false;
-
         // Apply hostile dark material and TGA Texture
         object.traverse((child) => {
             if (child.isMesh) {
@@ -163,13 +160,6 @@ export class BossEnemy {
             this.animations['Walk'] = walkAction;
             walkAction.play();
             this.currentAction = 'Walk';
-
-            // Reveal the model shortly after the Walking animation starts to hide the T-Pose
-            setTimeout(() => {
-                if (this.modelWrapper && !this.isDead) {
-                    this.modelWrapper.visible = true;
-                }
-            }, 100);
         }
 
         // 2. Swiping/Attack Animation
