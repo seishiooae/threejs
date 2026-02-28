@@ -248,9 +248,10 @@ export class HomingMissile {
         }
 
         // Homing Logic
-        if (this.targetPlayer && this.targetPlayer.mesh) {
+        if (this.targetPlayer) {
+            const playerPos = this.targetPlayer.getPosition ? this.targetPlayer.getPosition() : this.targetPlayer.mesh.position;
             // Where we want to go
-            let targetPos = this.targetPlayer.mesh.position.clone();
+            let targetPos = playerPos.clone();
             targetPos.y += 1.0; // Aim at chest height
 
             if (!this.isAccurate) {
@@ -288,8 +289,9 @@ export class HomingMissile {
         if (!this.alive) return;
 
         // Check Player hit
-        if (this.targetPlayer && this.targetPlayer.mesh && !this.targetPlayer.isDead) {
-            const dist = this.mesh.position.distanceTo(this.targetPlayer.mesh.position);
+        if (this.targetPlayer && !this.targetPlayer.isDead) {
+            const playerPos = this.targetPlayer.getPosition ? this.targetPlayer.getPosition() : this.targetPlayer.mesh.position;
+            const dist = this.mesh.position.distanceTo(playerPos);
             if (dist < 1.5) { // Hit radius
                 this.explode();
                 return;
@@ -331,10 +333,11 @@ export class HomingMissile {
 
         // Calculate Damage & Knockback for local player
         if (this.targetPlayer === this.game.player && !this.targetPlayer.isDead) {
-            const dist = this.mesh.position.distanceTo(this.targetPlayer.mesh.position);
+            const playerPos = this.targetPlayer.getPosition ? this.targetPlayer.getPosition() : this.targetPlayer.mesh.position;
+            const dist = this.mesh.position.distanceTo(playerPos);
             if (dist <= this.explosionRadius) {
                 // Direction from explosion TO player
-                const knockbackDir = this.targetPlayer.mesh.position.clone().sub(this.mesh.position).normalize();
+                const knockbackDir = playerPos.clone().sub(this.mesh.position).normalize();
                 // Add vertical lift to the explosion so they fly upwards slightly
                 knockbackDir.y += 0.5;
                 knockbackDir.normalize();

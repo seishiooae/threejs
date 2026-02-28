@@ -19,8 +19,8 @@ export class BossEnemy {
         this.isDead = false;
 
         // Constants configurable for Boss
-        this.ALERT_RANGE = 25.0;     // Much further sight
-        this.ATTACK_RANGE = 20.0;    // Range to trigger lightning
+        this.ALERT_RANGE = 18.0;     // Much further sight
+        this.ATTACK_RANGE = 12.0;    // Range to trigger lightning
         this.WALK_SPEED = 2.0;       // Slow patrol walk
         this.CHASE_SPEED = 4.0;      // Faster when alert (though mostly attacks)
         this.TURN_SPEED = 3.0;
@@ -372,6 +372,7 @@ export class BossEnemy {
                 // Transition out of attack state after strike finishes
                 if (this.timeInState > 2.5) {
                     this.lightningCooldown = 3.0 + Math.random() * 2.0; // 3-5 second cooldown
+                    this.hasTargetedLightning = false; // Reset for next attack
                     this.setState('PATROL'); // Always return to patrol to avoid freezing
                 }
                 break;
@@ -382,6 +383,10 @@ export class BossEnemy {
         if (this.state === newState) return;
         this.state = newState;
         this.timeInState = 0; // Reset time in state
+
+        if (newState === 'LIGHTNING_ATTACK') {
+            this.hasTargetedLightning = false;
+        }
 
         // Handle animation transitions (Only Host runs this via AI loop)
         if (this.mixer) {
@@ -532,7 +537,9 @@ export class BossEnemy {
 
     updateLightningAttack(delta) {
         // At the very start of the attack, spawn the warning circle
-        if (this.timeInState < delta) { // Just entered state
+        if (!this.hasTargetedLightning) {
+            this.hasTargetedLightning = true;
+
             const target = this.getClosestPlayer();
             if (target.position && this.game.vfx) {
                 // Strike at player's current position
