@@ -8,6 +8,7 @@ import { SoundManager } from './SoundManager.js';
 import { updateDebugOverlay } from './DebugOverlay.js';
 import { PhysicsManager } from './PhysicsManager.js';
 import { Enemy } from './Enemy.js';
+import { BossEnemy } from './BossEnemy.js'; // Added BossEnemy import
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { TGALoader } from 'three/examples/jsm/loaders/TGALoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -78,7 +79,7 @@ export class Game {
             let loadedCount = 0;
             const checkDone = () => {
                 loadedCount++;
-                if (loadedCount >= 4) resolve();
+                if (loadedCount >= 6) resolve(); // Added roar and treasure
             };
 
             console.log('[Game] Loading centralized enemy assets...');
@@ -117,6 +118,26 @@ export class Game {
                 checkDone();
             });
 
+            // 4. Load Roar Animation (For Boss Alert)
+            fbxLoader.load('/models/enemy/MutantRoaring.FBX', (object) => {
+                if (object.animations.length > 0) {
+                    this.enemyAssets.animations['Roar'] = object.animations[0];
+                }
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load Roar FBX:', err);
+                checkDone();
+            });
+
+            // 5. Load Treasure FBX
+            fbxLoader.load('/models/enemy/Kongou123.FBX', (object) => {
+                this.enemyAssets.treasureModel = object;
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load Treasure FBX:', err);
+                checkDone();
+            });
+
             // 3. Load Texture
             tgaLoader.load('/models/enemy/Kongou999.TGA', (texture) => {
                 this.enemyAssets.texture = texture;
@@ -129,18 +150,41 @@ export class Game {
     }
 
     initEnemies() {
-        // Spawn 3 enemies inside valid maze bounds, behind walls or in open plazas
-        // Map is 16x16 cells. Cell size = 5. Valid interior size is up to 70x70.
-        const spawnPoints = [
-            new THREE.Vector3(25.0, 0, 10.0), // Top plaza area
-            new THREE.Vector3(15.0, 0, 50.0), // Left inner maze
-            new THREE.Vector3(65.0, 0, 65.0)  // Bottom right deep corner
-        ];
+        // Spawn 1 Giant Boss in the central plaza (approx map center)
+        const mapWidth = 16 * 5; // 80
+        const mapHeight = 16 * 5; // 80
+        const centerPos = new THREE.Vector3(mapWidth / 2, 0, mapHeight / 2);
 
-        for (let i = 0; i < 3; i++) {
-            const position = spawnPoints[i];
-            const enemy = new Enemy(this, position, `enemy_spawn_${i}`, this.enemyAssets);
-            this.enemies.push(enemy);
+        // Make Boss
+        const boss = new BossEnemy(this, centerPos, "boss_1", this.enemyAssets);
+        this.enemies.push(boss);
+
+        // Add Rotating Treasure above Boss
+        if (this.enemyAssets.treasureModel) {
+            this.treasureObj = SkeletonUtils.clone(this.enemyAssets.treasureModel);
+            this.treasureObj.position.copy(centerPos);
+            this.treasureObj.position.y = 8; // Slightly higher than the 3x scaled boss
+
+            // Adjust materials if needed
+            this.treasureObj.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    // Give it a glowing golden look
+                    child.material = new THREE.MeshStandardMaterial({
+                        color: 0xffd700,
+                        emissive: 0xaa6600,
+                        emissiveIntensity: 0.5,
+                        metalness: 1.0,
+                        roughness: 0.2
+                    });
+                }
+            });
+            this.scene.add(this.treasureObj);
+
+            // Add a yellow point light to the treasure
+            const treasureLight = new THREE.PointLight(0xffa500, 10, 15);
+            treasureLight.position.copy(this.treasureObj.position);
+            this.scene.add(treasureLight);
         }
     }
 
@@ -356,7 +400,7 @@ export class Game {
                 if (targetId) {
                     // Check if it's a remote player
                     if (this.networkManager && this.remotePlayers[targetId]) {
-                        console.log(`[Game] Hit Player ${targetId}! Sending damage...`);
+                        console.log(`[Game] Hit Player ${targetId} !Sending damage...`);
                         this.networkManager.sendHit(targetId, 10, direction); // Send direction for ragdoll
                         this.remotePlayers[targetId].takeDamage(10, direction);
                     }
@@ -364,7 +408,7 @@ export class Game {
                     else {
                         const hitEnemy = this.enemies.find(e => e.id === targetId);
                         if (hitEnemy) {
-                            console.log(`[Game] Hit Enemy ${targetId}! Sending damage to server...`);
+                            console.log(`[Game] Hit Enemy ${targetId} !Sending damage to server...`);
                             if (this.networkManager) {
                                 this.networkManager.sendHit(targetId, 10, direction);
                             } else {
@@ -429,7 +473,7 @@ export class Game {
     }
 
     createRemotePlayer(id, state) {
-        console.log(`[Game] Creating Remote Player: ${id}`, state);
+        console.log(`[Game] Creating Remote Player: ${id} `, state);
         // FIXED: Constructor is (game, id, isLocal)
         const remotePlayer = new Player(this, id, false);
 
@@ -437,7 +481,7 @@ export class Game {
         if (state) {
             remotePlayer.mesh.position.copy(state.position);
             remotePlayer.mesh.rotation.set(state.rotation.x, state.rotation.y, state.rotation.z);
-            console.log(`[Game] Remote Player ${id} initial pos:`, state.position);
+            console.log(`[Game] Remote Player ${id} initial pos: `, state.position);
         }
 
         // CRITICAL: Assign ID to mesh for Raycasting Hit Detection
@@ -452,13 +496,13 @@ export class Game {
 
         // Add to remotePlayers list
         this.remotePlayers[id] = remotePlayer;
-        console.log(`[Game] Remote Player Count now: ${Object.keys(this.remotePlayers).length}`);
+        console.log(`[Game] Remote Player Count now: ${Object.keys(this.remotePlayers).length} `);
         return remotePlayer;
     }
 
     removeRemotePlayer(player) {
         if (player) {
-            console.log(`[Game] Removing Remote Player: ${player.id}`);
+            console.log(`[Game] Removing Remote Player: ${player.id} `);
             player.dispose(); // Call the proper cleanup method to clear physics and scene
             if (player.id && this.remotePlayers[player.id]) {
                 delete this.remotePlayers[player.id];
@@ -553,6 +597,11 @@ export class Game {
                         this.networkManager.socket.emit('enemyState', enemyStates);
                     }
                 }
+            }
+
+            // Update treasure rotation
+            if (this.treasureObj) {
+                this.treasureObj.rotation.y += delta * 1.0; // Slowly rotate
             }
 
             if (this.player.camera) {

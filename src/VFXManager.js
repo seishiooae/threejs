@@ -35,6 +35,21 @@ export class VFXManager {
         this.texture = null;
         this._ready = false;
 
+        // Active lightning effects (custom volumetric lightning)
+        this.activeLightning = [];
+        this.activeWarnings = [];
+
+        // Lightning Flash Light (reusable point light)
+        this.flashLight = new THREE.PointLight(0x88aaff, 0, 100);
+        this.flashLight.position.set(0, 15, 0);
+        this.scene.add(this.flashLight);
+
+        // Lightning Audio
+        try {
+            this.thunderAudio = new Audio('/models/enemy/LightStrike.WAV');
+            this.thunderAudio.volume = 0.8;
+        } catch (e) { console.warn("Could not load thunder audio", e); }
+
         // Procedural textures (available immediately  Eno async loading!)
         this.fireGlowTex = createFireGlowTexture(128);
         this.smokeTex = createSmokeTexture(128);
@@ -60,6 +75,40 @@ export class VFXManager {
         this._createMuzzleFlashGroup(worldPos);
     }
 
+    /** Spawns a warning circle at pos, and calls onHitCallback after 1 second when the lightning strikes */
+    spawnLightning(pos, onHitCallback) {
+        const warning = new WarningCircle(this.scene);
+        this.activeWarnings.push(warning);
+
+        warning.show(pos, (strikePos) => {
+            // Remove warning from active list
+            this.activeWarnings = this.activeWarnings.filter(w => w !== warning);
+
+            // Strike!
+            const bolt = new LightningBolt(this.scene, this.flashLight);
+            this.activeLightning.push(bolt);
+            bolt.strike(strikePos);
+
+            // Play sound
+            if (this.thunderAudio) {
+                this.thunderAudio.currentTime = 0;
+                this.thunderAudio.play().catch(e => console.warn(e));
+            }
+
+            // Screen flash (assumes Game.js or UI overlay handles this via ID)
+            const flash = document.getElementById('flash-overlay');
+            if (flash) {
+                flash.style.opacity = '0.8';
+                setTimeout(() => flash.style.transition = 'opacity 0.3s', 50);
+                setTimeout(() => flash.style.opacity = '0', 80);
+                setTimeout(() => flash.style.transition = 'opacity 0.05s', 400);
+            }
+
+            // Trigger hit callback (tells Boss/Game to damage player)
+            if (onHitCallback) onHitCallback(strikePos);
+        });
+    }
+
     /** Orange propellant blast when missile launches */
     missileLaunch(worldPos) {
         if (!this._ready) return;
@@ -82,6 +131,20 @@ export class VFXManager {
                 sys.dispose();
                 this._systems.splice(i, 1);
             }
+        }
+
+        // Update lightning effects
+        for (let i = this.activeLightning.length - 1; i >= 0; i--) {
+            const bolt = this.activeLightning[i];
+            bolt.update(delta);
+            if (!bolt.active) {
+                this.activeLightning.splice(i, 1);
+            }
+        }
+
+        // Update warning circles
+        for (let i = this.activeWarnings.length - 1; i >= 0; i--) {
+            this.activeWarnings[i].update(delta);
         }
     }
 
@@ -314,7 +377,6 @@ export class VFXManager {
         });
         fireball.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(1, 0.7, 0.15, 1), new THREE.Vector4(0.8, 0.1, 0.0, 0))));
         fireball.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.4, 1, 0.8, 0.1), 0]])));
-        fireball.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 2, Math.PI / 2)));
         this._addSystem(fireball, worldPos);
 
         // Layer 3: RISING FLAME COLUMN  E4-stage staggered bursts for sustained fire
@@ -387,3 +449,287 @@ export class VFXManager {
     }
 }
 
+
+// ── Helper Classes for Lightning VFX ──────────────────────────────────────────────────
+
+class LightningBolt {
+    constructor(scene, flashLight) {
+        this.scene = scene;
+        this.flashLight = flashLight;
+        this.bolts = [];
+        this.glowBolts = [];
+        this.active = false;
+        this.lifetime = 0;
+        this.maxLifetime = 0.4;
+        this.flickerTimer = 0;
+        this.flickerInterval = 0.04;
+        this.strikePos = new THREE.Vector3();
+        this.impactGroup = new THREE.Group();
+        this.scene.add(this.impactGroup);
+    }
+
+    _generateBoltPath(start, end, segments = 12, jitter = 2.5) {
+        const points = [start.clone()];
+        const dir = new THREE.Vector3().subVectors(end, start);
+        dir.normalize();
+
+        for (let i = 1; i < segments; i++) {
+            const t = i / segments;
+            const p = new THREE.Vector3().lerpVectors(start, end, t);
+            const offsetScale = jitter * Math.sin(t * Math.PI);
+            p.x += (Math.random() - 0.5) * 2 * offsetScale;
+            p.z += (Math.random() - 0.5) * 2 * offsetScale;
+            p.y += (Math.random() - 0.5) * jitter * 0.3;
+            points.push(p);
+        }
+        points.push(end.clone());
+        return points;
+    }
+
+    _createBoltLine(points, color, linewidth = 1, opacity = 1) {
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({
+            color, transparent: true, opacity,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const line = new THREE.Line(geo, mat);
+        this.scene.add(line);
+        return line;
+    }
+
+    _createGlowTube(points, color, radius = 0.15, opacity = 0.4) {
+        const curve = new THREE.CatmullRomCurve3(points);
+        const geo = new THREE.TubeGeometry(curve, points.length * 2, radius, 6, false);
+        const mat = new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        this.scene.add(mesh);
+        return mesh;
+    }
+
+    _createImpactSparks(pos) {
+        // Ground ring flash
+        const ringGeo = new THREE.RingGeometry(0.5, 3, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0x88ccff, transparent: true, opacity: 0.8,
+            blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.position.copy(pos);
+        ring.position.y = 0.05;
+        ring.rotation.x = -Math.PI / 2;
+        this.impactGroup.add(ring);
+
+        // Radial spark lines
+        for (let i = 0; i < 16; i++) {
+            const angle = (i / 16) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+            const len = 1.5 + Math.random() * 3;
+            const sparkPoints = [];
+            const segs = 4 + Math.floor(Math.random() * 3);
+            for (let j = 0; j <= segs; j++) {
+                const t = j / segs;
+                sparkPoints.push(new THREE.Vector3(
+                    pos.x + Math.cos(angle) * len * t + (Math.random() - 0.5) * 0.3,
+                    0.1 + Math.random() * 0.5 * (1 - t),
+                    pos.z + Math.sin(angle) * len * t + (Math.random() - 0.5) * 0.3,
+                ));
+            }
+            const sparkGeo = new THREE.BufferGeometry().setFromPoints(sparkPoints);
+            const sparkMat = new THREE.LineBasicMaterial({
+                color: new THREE.Color().setHSL(0.58 + Math.random() * 0.08, 0.9, 0.7 + Math.random() * 0.3),
+                transparent: true, opacity: 0.9,
+                blending: THREE.AdditiveBlending, depthWrite: false,
+            });
+            const sparkLine = new THREE.Line(sparkGeo, sparkMat);
+            this.impactGroup.add(sparkLine);
+        }
+
+        // Ground scorch glow
+        const glowGeo = new THREE.CircleGeometry(2, 32);
+        const glowMat = new THREE.MeshBasicMaterial({
+            color: 0x4488ff, transparent: true, opacity: 0.6,
+            blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+        });
+        const glow = new THREE.Mesh(glowGeo, glowMat);
+        glow.position.copy(pos);
+        glow.position.y = 0.02;
+        glow.rotation.x = -Math.PI / 2;
+        this.impactGroup.add(glow);
+    }
+
+    strike(targetPos) {
+        this.cleanup();
+        this.strikePos.copy(targetPos);
+        const skyPos = new THREE.Vector3(
+            targetPos.x + (Math.random() - 0.5) * 6,
+            40 + Math.random() * 15,
+            targetPos.z + (Math.random() - 0.5) * 6
+        );
+
+        this.active = true;
+        this.lifetime = 0;
+        this._buildBolt(skyPos, targetPos);
+        this._createImpactSparks(targetPos);
+
+        if (this.flashLight) {
+            this.flashLight.position.copy(targetPos);
+            this.flashLight.position.y = 10;
+            this.flashLight.intensity = 30;
+            this.flashLight.color.setHex(0x88aaff);
+        }
+    }
+
+    _buildBolt(skyPos, targetPos) {
+        const mainPath = this._generateBoltPath(skyPos, targetPos, 14, 3.0);
+        this.bolts.push(this._createBoltLine(mainPath, 0xffffff, 2, 1.0));
+        this.glowBolts.push(this._createGlowTube(mainPath, 0x6688ff, 0.3, 0.5));
+        this.glowBolts.push(this._createGlowTube(mainPath, 0x4466cc, 0.7, 0.2));
+
+        const mainPath2 = this._generateBoltPath(skyPos, targetPos, 10, 2.0);
+        this.bolts.push(this._createBoltLine(mainPath2, 0xaaccff, 1, 0.7));
+
+        for (let i = 0; i < mainPath.length; i++) {
+            if (Math.random() < 0.35 && i > 2 && i < mainPath.length - 2) {
+                const branchStart = mainPath[i].clone();
+                const branchEnd = branchStart.clone().add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 10, -(2 + Math.random() * 6), (Math.random() - 0.5) * 10,
+                ));
+                const branchPath = this._generateBoltPath(branchStart, branchEnd, 5, 1.5);
+                this.bolts.push(this._createBoltLine(branchPath, 0x88aaff, 1, 0.6));
+                this.glowBolts.push(this._createGlowTube(branchPath, 0x4466cc, 0.15, 0.25));
+
+                if (Math.random() < 0.4 && branchPath.length > 2) {
+                    const subStart = branchPath[Math.floor(branchPath.length / 2)].clone();
+                    const subEnd = subStart.clone().add(new THREE.Vector3(
+                        (Math.random() - 0.5) * 5, -(1 + Math.random() * 3), (Math.random() - 0.5) * 5,
+                    ));
+                    const subPath = this._generateBoltPath(subStart, subEnd, 3, 0.8);
+                    this.bolts.push(this._createBoltLine(subPath, 0x6688cc, 1, 0.4));
+                }
+            }
+        }
+    }
+
+    _flicker() {
+        for (const b of this.bolts) { this.scene.remove(b); b.geometry?.dispose(); b.material?.dispose(); }
+        for (const g of this.glowBolts) { this.scene.remove(g); g.geometry?.dispose(); g.material?.dispose(); }
+        this.bolts = [];
+        this.glowBolts = [];
+
+        const skyPos = new THREE.Vector3(
+            this.strikePos.x + (Math.random() - 0.5) * 4,
+            40 + Math.random() * 15,
+            this.strikePos.z + (Math.random() - 0.5) * 4
+        );
+        this._buildBolt(skyPos, this.strikePos);
+    }
+
+    update(delta) {
+        if (!this.active) return;
+        this.lifetime += delta;
+
+        this.flickerTimer += delta;
+        if (this.flickerTimer >= this.flickerInterval) {
+            this.flickerTimer = 0;
+            if (this.lifetime < this.maxLifetime * 0.7) this._flicker();
+        }
+
+        const fadeT = Math.max(0, 1 - this.lifetime / this.maxLifetime);
+        for (const b of this.bolts) if (b.material) b.material.opacity = fadeT;
+        for (const g of this.glowBolts) if (g.material) g.material.opacity = fadeT * 0.4;
+
+        if (this.flashLight) this.flashLight.intensity = 30 * fadeT * fadeT;
+
+        this.impactGroup.children.forEach(c => {
+            if (c.material) c.material.opacity = fadeT;
+        });
+
+        if (this.lifetime >= this.maxLifetime) this.cleanup();
+    }
+
+    cleanup() {
+        for (const b of this.bolts) { this.scene.remove(b); b.geometry?.dispose(); b.material?.dispose(); }
+        for (const g of this.glowBolts) { this.scene.remove(g); g.geometry?.dispose(); g.material?.dispose(); }
+        this.bolts = [];
+        this.glowBolts = [];
+        this.active = false;
+        if (this.flashLight) this.flashLight.intensity = 0;
+
+        while (this.impactGroup.children.length > 0) {
+            const c = this.impactGroup.children[0];
+            c.geometry?.dispose();
+            c.material?.dispose();
+            this.impactGroup.remove(c);
+        }
+    }
+}
+
+class WarningCircle {
+    constructor(scene) {
+        this.scene = scene;
+        this.mesh = null;
+        this.innerMesh = null;
+        this.active = false;
+        this.timer = 0;
+        this.duration = 1.0;
+        this.pos = new THREE.Vector3();
+        this.onComplete = null;
+    }
+
+    show(pos, onComplete) {
+        this.cleanup();
+        this.pos.copy(pos);
+        this.active = true;
+        this.timer = 0;
+        this.onComplete = onComplete;
+
+        const ringGeo = new THREE.RingGeometry(1.5, 2.0, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+            color: 0xff4444, transparent: true, opacity: 0.6,
+            blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+        });
+        this.mesh = new THREE.Mesh(ringGeo, ringMat);
+        this.mesh.position.set(pos.x, 0.05, pos.z);
+        this.mesh.rotation.x = -Math.PI / 2;
+        this.scene.add(this.mesh);
+
+        const fillGeo = new THREE.CircleGeometry(1.5, 32);
+        const fillMat = new THREE.MeshBasicMaterial({
+            color: 0xff2222, transparent: true, opacity: 0.15,
+            blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false,
+        });
+        this.innerMesh = new THREE.Mesh(fillGeo, fillMat);
+        this.innerMesh.position.set(pos.x, 0.03, pos.z);
+        this.innerMesh.rotation.x = -Math.PI / 2;
+        this.scene.add(this.innerMesh);
+    }
+
+    update(delta) {
+        if (!this.active) return;
+        this.timer += delta;
+
+        const pulse = 1 + Math.sin(this.timer * 12) * 0.15;
+        if (this.mesh) {
+            this.mesh.scale.setScalar(pulse);
+            this.mesh.material.opacity = 0.4 + Math.sin(this.timer * 8) * 0.3;
+        }
+        if (this.innerMesh) {
+            this.innerMesh.material.opacity = 0.1 + (this.timer / this.duration) * 0.3;
+            this.innerMesh.scale.setScalar(pulse * 0.9);
+        }
+
+        if (this.timer >= this.duration) {
+            const pos = this.pos.clone();
+            this.cleanup();
+            if (this.onComplete) this.onComplete(pos);
+        }
+    }
+
+    cleanup() {
+        if (this.mesh) { this.scene.remove(this.mesh); this.mesh.geometry?.dispose(); this.mesh.material?.dispose(); this.mesh = null; }
+        if (this.innerMesh) { this.scene.remove(this.innerMesh); this.innerMesh.geometry?.dispose(); this.innerMesh.material?.dispose(); this.innerMesh = null; }
+        this.active = false;
+    }
+}

@@ -1,0 +1,71 @@
+Begin Object Class=/Script/Engine.Material Name="kongouitem_1_mtl"
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant Name="MaterialExpressionConstant_0"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant Name="MaterialExpressionConstant_1"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant3Vector Name="MaterialExpressionConstant3Vector_0"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionMultiply Name="MaterialExpressionMultiply_0"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionTextureSample Name="MaterialExpressionTextureSample_0"
+   End Object
+   Begin Object Class=/Script/UnrealEd.SceneThumbnailInfoWithPrimitive Name="SceneThumbnailInfoWithPrimitive_0"
+   End Object
+   Begin Object Name="MaterialExpressionConstant_0"
+      R=1.000000
+      MaterialExpressionEditorX=155
+      MaterialExpressionEditorY=138
+      MaterialExpressionGuid=AEF1FD464623C9941B38439DF5256DA7
+      Material=Material'"kongouitem_1_mtl"'
+   End Object
+   Begin Object Name="MaterialExpressionConstant_1"
+      R=0.170000
+      MaterialExpressionEditorX=128
+      MaterialExpressionEditorY=256
+      MaterialExpressionGuid=498219FD431950C4892360A95E8AE788
+      Material=Material'"kongouitem_1_mtl"'
+   End Object
+   Begin Object Name="MaterialExpressionConstant3Vector_0"
+      Constant=(R=0.935068,G=1.000000,B=0.858195,A=0.000000)
+      MaterialExpressionEditorX=-288
+      MaterialExpressionEditorY=144
+      MaterialExpressionGuid=52239AD5487888105CFAFD8ED41EC885
+      Material=Material'"kongouitem_1_mtl"'
+   End Object
+   Begin Object Name="MaterialExpressionMultiply_0"
+      A=(Expression=MaterialExpressionTextureSample'"kongouitem_1_mtl:MaterialExpressionTextureSample_0"',OutputIndex=1,Mask=1,MaskR=1)
+      B=(Expression=MaterialExpressionConstant3Vector'"kongouitem_1_mtl:MaterialExpressionConstant3Vector_0"')
+      MaterialExpressionEditorX=-112
+      MaterialExpressionEditorY=-64
+      MaterialExpressionGuid=CBF474F94BDFC3CE344F2E92E2378E4F
+      Material=Material'"kongouitem_1_mtl"'
+   End Object
+   Begin Object Name="MaterialExpressionTextureSample_0"
+      Texture=Texture2D'"/Game/Blueprints/BackGround/kongouitem/seishi999_2024-01-21_19-27-41_kongouitem_1.seishi999_2024-01-21_19-27-41_kongouitem_1"'
+      MaterialExpressionEditorX=-416
+      MaterialExpressionEditorY=-160
+      MaterialExpressionGuid=9ACF54B946CC79AA97D65A8171445E11
+      Material=Material'"kongouitem_1_mtl"'
+   End Object
+   Begin Object Name="SceneThumbnailInfoWithPrimitive_0"
+   End Object
+   BaseColor=(Expression=MaterialExpressionMultiply'"MaterialExpressionMultiply_0"')
+   Metallic=(Expression=MaterialExpressionConstant'"MaterialExpressionConstant_0"')
+   Roughness=(Expression=MaterialExpressionConstant'"MaterialExpressionConstant_1"')
+   bUsedWithSkeletalMesh=True
+   EditorX=320
+   EditorY=-32
+   Expressions(0)=MaterialExpressionTextureSample'"MaterialExpressionTextureSample_0"'
+   Expressions(1)=MaterialExpressionConstant'"MaterialExpressionConstant_0"'
+   Expressions(2)=MaterialExpressionConstant'"MaterialExpressionConstant_1"'
+   Expressions(3)=MaterialExpressionMultiply'"MaterialExpressionMultiply_0"'
+   Expressions(4)=MaterialExpressionConstant3Vector'"MaterialExpressionConstant3Vector_0"'
+   bCanMaskedBeAssumedOpaque=True
+   StateId=4C54146F4BE5C9AC3E6D10AF13AD3CBF
+   CachedExpressionData=(ReferencedTextures=(Texture2D'"/Game/Blueprints/BackGround/kongouitem/seishi999_2024-01-21_19-27-41_kongouitem_1.seishi999_2024-01-21_19-27-41_kongouitem_1"'),QualityLevelsUsed=(False,False,False,False))
+   ReferencedTextureGuids(0)=8A84E55F405A6E6F7D7E21900B2548D1
+   TextureStreamingDataVersion=1
+   TextureStreamingData(0)=(SamplingScale=1.000000,UVChannelIndex=0,TextureName="seishi999_2024-01-21_19-27-41_kongouitem_1",TextureReference=/Game/Blueprints/BackGround/kongouitem/seishi999_2024-01-21_19-27-41_kongouitem_1.seishi999_2024-01-21_19-27-41_kongouitem_1)
+   ThumbnailInfo=SceneThumbnailInfoWithPrimitive'"SceneThumbnailInfoWithPrimitive_0"'
+   LightingGuid=281B04F8420F29FEC74A22904BD66758
+End Object

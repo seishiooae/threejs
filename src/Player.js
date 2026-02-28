@@ -33,6 +33,12 @@ export class Player {
 
         // Animation
         this.mixer = null;
+        this.isThirdPerson = true;
+
+        // --- Stun Mechanics ---
+        this.stunCount = 0;
+        this.isStunned = false;
+
         this.animations = {};
         this.currentAction = 'Idle';
         this.state = 'Idle'; // Added for animation state management
@@ -125,10 +131,11 @@ export class Player {
         if (this.isLocal && this.game && this.game.networkManager) {
             this.game.networkManager.sendRagdollEnd();
         }
-
         this.isDead = false;
+        this.isStunned = false;
+        this.stunCount = 0;
         this.health = this.maxHealth;
-
+        this.velocity.set(0, 0, 0);
         // Unfreeze animations
         if (this.mixer) {
             this.mixer.timeScale = 1.0;
@@ -439,11 +446,29 @@ export class Player {
         this.loadFBX('/models/run.FBX', () => {
             console.log('Auto-load: Main model loaded, loading additional assets...');
             // Load separate Idle animation (run.FBX only has run anim)
-            this.loadExternalAnimation('/models/idle.FBX', 'Idle');
+            // 2) Load Animations via external files
+            this.loadExternalAnimation('/models/Idle.FBX', 'Idle', undefined, '/models/animations/Idle.fbx');
+            this.loadExternalAnimation('/models/Walking.FBX', 'Walk', undefined, '/models/animations/Walking.fbx');
+            this.loadExternalAnimation('/models/Running.FBX', 'Run', undefined, '/models/animations/Running.fbx');
+            // Removed WalkBack as it's generated from Walk.
 
-            // Load HitReaction (Full Body)
-            this.loadExternalAnimation('/models/HitReaction.FBX', 'Hit');
+            // Load Shooting Animation (Upper body only)
+            this.loadExternalAnimation('/models/Firing_Rifle.FBX', 'Shoot', (clip) => {
+                return this.createUpperBodyClip(clip, 'Shoot');
+            }, '/models/animations/Firing_Rifle.fbx');
 
+            // Load Hit Reaction Animation (Upper body only)
+            this.loadExternalAnimation('/models/Hit_Reaction.FBX', 'Hit', (clip) => {
+                return this.createUpperBodyClip(clip, 'Hit');
+            }, '/models/animations/Hit_Reaction.fbx');
+
+            // Load Stun / Get Up Animations
+            this.loadExternalAnimation('/models/GettingUpFromBack_Anim.FBX', 'StandUpBack', undefined);
+            this.loadExternalAnimation('/models/StandingUpFromFront_Anim.FBX', 'StandUpFront', undefined);
+
+            // Optional: Pre-load jump/death if available. (We use ragdoll for death mostly)
+            // Set Default
+            this.setAnimationAction('Idle');
             // Texture
             this.applyTexture('/models/skelton999.TGA');
         });
@@ -929,8 +954,9 @@ export class Player {
                 const isOneShot = (name === 'Shoot' || name.toLowerCase().includes('shoot') ||
                     name.toLowerCase().includes('fire') || name.toLowerCase().includes('attack'));
                 const isHit = name.toLowerCase().includes('hit');
+                const isStandUp = name.toLowerCase().includes('standup'); // For new stun animations
 
-                if (isOneShot || isHit) {
+                if (isOneShot || isHit || isStandUp) {
                     action.setLoop(THREE.LoopOnce);
                     if (isOneShot) action.clampWhenFinished = true; // Hold pose after shooting, but hits should finish cleanly
                 } else {
@@ -1210,6 +1236,19 @@ export class Player {
     }
 
     handleMovement(delta, walls, isFiring) {
+        if (!this.isLocal) return;
+        if (this.isDead || this.isStunned) {
+            // Stop all movement and shooting when stunned or dead
+            this.velocity.set(0, 0, 0);
+            this.moveForward = this.moveBackward = this.moveLeft = this.moveRight = false;
+            return;
+        }
+
+        // Gizmo overrides movement/aiming entirely!
+        if (this.transformControl && this.transformControl.dragging) {
+            return;
+        }
+
         // Global Debug Key (P) - Export Config
         if (this.game.keys && this.game.keys['KeyP'] && !this.pKeyDebounce) {
             this.pKeyDebounce = true;
@@ -2081,6 +2120,81 @@ export class Player {
             snd.play().catch(e => console.warn(e));
         } catch (e) {
             console.warn("Audio playback failed:", e);
+        }
+    }
+
+    takeLightningStrike() {
+        if (this.isDead || !this.isLocal || this.isInvincible) return;
+
+        this.stunCount++;
+        console.log(`[Player] Lightning Strike! Stun count: ${this.stunCount}/3`);
+
+        // Camera Shake
+        if (this.camera) {
+            const originalPosition = this.camera.position.clone();
+            let shakeTime = 0;
+            const shakeDuration = 0.5;
+            const shakeAmount = 0.3;
+
+            const shakeInterval = setInterval(() => {
+                shakeTime += 0.05;
+                if (shakeTime >= shakeDuration) {
+                    clearInterval(shakeInterval);
+                    this.camera.position.copy(originalPosition);
+                } else {
+                    this.camera.position.x = originalPosition.x + (Math.random() - 0.5) * shakeAmount;
+                    this.camera.position.y = originalPosition.y + (Math.random() - 0.5) * shakeAmount;
+                    this.camera.position.z = originalPosition.z + (Math.random() - 0.5) * shakeAmount;
+                }
+            }, 50);
+        }
+
+        if (this.stunCount >= 3) {
+            // Guaranteed lethal damage on 3rd strike
+            this.takeDamage(this.health, new THREE.Vector3(0, -1, 0));
+            return;
+        }
+
+        // Apply Stun State
+        this.isStunned = true;
+        this.velocity.set(0, 0, 0); // Stop moving instantly
+
+        // Randomly pick Front or Back stun animation
+        const isFront = Math.random() > 0.5;
+        const animName = isFront ? 'StandUpFront' : 'StandUpBack';
+
+        console.log(`[Player] Playing Stun Animation: ${animName}`);
+
+        if (this.animations[animName]) {
+            this.setAnimationAction(animName);
+
+            // The loading function will have clampWhenFinished=true and LoopOnce for these
+            // We listen for the single event loop to finish
+            const onAnimationFinished = (e) => {
+                if (e.action === this.animations[animName]) {
+                    this.mixer.removeEventListener('finished', onAnimationFinished);
+                    if (!this.isDead) {
+                        this.isStunned = false;
+                        this.setAnimationAction('Idle');
+                        console.log("[Player] Recovered from stun!");
+                    }
+                }
+            };
+            this.mixer.addEventListener('finished', onAnimationFinished);
+
+            // Fallback in case the event listener fails
+            setTimeout(() => {
+                if (this.isStunned && !this.isDead) {
+                    this.mixer.removeEventListener('finished', onAnimationFinished);
+                    this.isStunned = false;
+                    this.setAnimationAction('Idle');
+                }
+            }, 3500); // Max stun time fallback
+        } else {
+            // Fallback if animations not loaded yet
+            setTimeout(() => {
+                if (!this.isDead) this.isStunned = false;
+            }, 2000);
         }
     }
 }
