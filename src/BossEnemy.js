@@ -112,8 +112,8 @@ export class BossEnemy {
             this.placeholder.material.depthWrite = false;
         }
 
-        // User requested exactly half the size of the previous iteration
-        const scale = 3.0; // Giant Boss Scale
+        // Boss should be 3x the physical size of standard enemies (0.000185)
+        const scale = 0.000185 * 3; // Giant Boss Scale
         object.scale.set(scale, scale, scale);
 
         // Setup hierarchy for Z-up to Y-up rotation
