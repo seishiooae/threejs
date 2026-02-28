@@ -60,11 +60,12 @@ export class BossEnemy {
 
         // Boss specific
         this.lightningCooldown = 0; // Cooldown for lightning attack
+        // Setup initial waypoints relative to spawn position (a square around the treasure)
         this.waypoints = [
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(20, 0, 0),
-            new THREE.Vector3(20, 0, 20),
-            new THREE.Vector3(0, 0, 20)
+            new THREE.Vector3(position.x - 12, 0, position.z - 12),
+            new THREE.Vector3(position.x + 12, 0, position.z - 12),
+            new THREE.Vector3(position.x + 12, 0, position.z + 12),
+            new THREE.Vector3(position.x - 12, 0, position.z + 12)
         ];
         this.currentWaypointIndex = 0;
 
@@ -123,9 +124,8 @@ export class BossEnemy {
 
         // Auto-center feet to Ground
         this.modelWrapper.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(this.modelWrapper);
-        // We add the absolute value of the lowest point to shift the model up so feet sit on Y=0
-        this.modelWrapper.position.y = Math.abs(box.min.y) - 0.05; // Slightly lowered so feet touch the ground
+        // We ensure the mesh sits directly on the floor without arbitrary Box3-based lifting
+        this.modelWrapper.position.y = 0.0;
 
         // Apply hostile dark material and TGA Texture
         object.traverse((child) => {
@@ -178,6 +178,15 @@ export class BossEnemy {
             deathAction.clampWhenFinished = true;
             this.animations['Death'] = deathAction;
             console.log(`[Enemy ${this.id}] Death Animation Linked`);
+        }
+
+        // 4. Roar Animation
+        if (this.assets.animations['Roar']) {
+            const roarAction = this.mixer.clipAction(this.assets.animations['Roar']);
+            roarAction.setLoop(THREE.LoopOnce, 1);
+            roarAction.clampWhenFinished = true;
+            this.animations['Roar'] = roarAction;
+            console.log(`[Enemy ${this.id}] Roar Animation Linked`);
         }
     }
 
@@ -335,24 +344,29 @@ export class BossEnemy {
         switch (this.state) {
             case 'PATROL':
                 this.updatePatrol(delta);
-                if (target.distance < this.ALERT_RANGE) {
+                // Only alert if we can actually attack (cooldown ready)
+                if (target.distance < this.ALERT_RANGE && this.lightningCooldown <= 0) {
                     this.setState('ALERT');
                 }
                 break;
             case 'ALERT':
                 this.updateAlert(delta);
-                if (target.distance < this.ATTACK_RANGE && this.lightningCooldown <= 0) {
-                    this.setState('LIGHTNING_ATTACK');
-                } else if (target.distance > this.ALERT_RANGE * 1.2) { // Lost player
-                    this.setState('PATROL');
+                // Wait for roar animation to finish (approx 2s) before striking
+                if (this.timeInState > 2.0) {
+                    if (target.distance < this.ATTACK_RANGE * 1.5) { // generous forgiveness range
+                        this.setState('LIGHTNING_ATTACK');
+                    } else {
+                        // Player ran away out of sight
+                        this.setState('PATROL');
+                    }
                 }
                 break;
             case 'LIGHTNING_ATTACK':
                 this.updateLightningAttack(delta);
-                // Transition out of attack state after a duration or animation finishes
-                if (this.timeInState > 2.0) { // Example duration for lightning attack
-                    this.lightningCooldown = 5.0; // 5-second cooldown
-                    this.setState('ALERT');
+                // Transition out of attack state after strike finishes
+                if (this.timeInState > 2.5) {
+                    this.lightningCooldown = 3.0 + Math.random() * 2.0; // 3-5 second cooldown
+                    this.setState('PATROL'); // Always return to patrol to avoid freezing
                 }
                 break;
         }
@@ -488,12 +502,17 @@ export class BossEnemy {
         if (Math.abs(normalizedDiff) < 0.5) {
             const moveVec = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
             moveVec.normalize().multiplyScalar(this.WALK_SPEED * delta);
-            this.mesh.position.add(moveVec);
+
+            // Only move if not inside a wall (primitive check)
+            const newPos = this.mesh.position.clone().add(moveVec);
+            if (!this.game.level || !this.game.level.checkCollision(newPos, 1.0)) {
+                this.mesh.position.copy(newPos);
+            }
         }
     }
 
     updateAlert(delta) {
-        // Find player to face them
+        // Find player to face them while roaring
         const target = this.getClosestPlayer();
         if (target.position) {
             const direction = new THREE.Vector3().subVectors(target.position, this.mesh.position);
@@ -504,10 +523,8 @@ export class BossEnemy {
             this.mesh.rotation.y += Math.sign(normalizedDiff) * Math.min(Math.abs(normalizedDiff), this.TURN_SPEED * delta);
         }
 
-        // Wait for roar animation to finish (approx 1.5 - 2 sec) before doing anything else
-        if (this.timeInState > 2.0 && this.lightningCooldown <= 0 && target.distance < this.ATTACK_RANGE) {
-            this.setState('LIGHTNING_ATTACK');
-        }
+        // Note: State transition to LIGHTNING_ATTACK is handled cleanly in updateAI() 
+        // to prevent the boss from freezing in the ALERT state loop forever.
     }
 
     updateLightningAttack(delta) {
@@ -533,11 +550,7 @@ export class BossEnemy {
             }
         }
 
-        // Wait 2.5 seconds (1s for warning, 1s for strike animation, 0.5s recovery)
-        if (this.timeInState > 2.5) {
-            this.lightningCooldown = 3.0 + Math.random() * 2.0; // 3-5s cooldown
-            this.setState('PATROL'); // Go back to patrol, will auto-alert if player is close
-        }
+        // We handle the return to PATROL cleanly in updateAI(), so we don't repeat it here.
     }
 
     playHitSound() {

@@ -214,11 +214,8 @@ export class Enemy {
                     const missileOptions = { isAccurate, missOffset, launchAngle };
 
                     let volleyCount = 0;
-                    const fireInterval = setInterval(() => {
-                        if (this.isDead || volleyCount >= 3) {
-                            clearInterval(fireInterval);
-                            return;
-                        }
+                    const fireHomingMissile = () => {
+                        if (this.isDead || volleyCount >= 3) return;
 
                         // Spawn missile slightly above Enemy chest
                         const spawnPos = this.mesh.position.clone();
@@ -236,7 +233,13 @@ export class Enemy {
                         launchAudio.play().catch(e => console.log('Missile launch audio failed:', e));
 
                         volleyCount++;
-                    }, 500); // 500ms between each missile so each one is visually distinct
+                        if (volleyCount < 3 && !this.isDead) {
+                            setTimeout(fireHomingMissile, 500);
+                        }
+                    };
+
+                    // Fire first missile instantly so fast-firing weapons don't kill it before the 500ms delay
+                    fireHomingMissile();
                 }
             }
         }
