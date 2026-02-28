@@ -130,7 +130,7 @@ export class Game {
             });
 
             // 5. Load Treasure FBX
-            fbxLoader.load('/models/enemy/Kongou123.FBX', (object) => {
+            fbxLoader.load('/models/enemy/kongou123.FBX', (object) => {
                 this.enemyAssets.treasureModel = object;
                 checkDone();
             }, undefined, (err) => {
@@ -150,6 +150,19 @@ export class Game {
     }
 
     initEnemies() {
+        // Spawn 3 standard enemies
+        const spawnPoints = [
+            new THREE.Vector3(25.0, 0, 10.0), // Top plaza area
+            new THREE.Vector3(15.0, 0, 50.0), // Left inner maze
+            new THREE.Vector3(65.0, 0, 65.0)  // Bottom right deep corner
+        ];
+
+        for (let i = 0; i < 3; i++) {
+            const position = spawnPoints[i];
+            const enemy = new Enemy(this, position, `enemy_spawn_${i}`, this.enemyAssets);
+            this.enemies.push(enemy);
+        }
+
         // Spawn 1 Giant Boss in the central plaza (approx map center)
         const mapWidth = 16 * 5; // 80
         const mapHeight = 16 * 5; // 80
