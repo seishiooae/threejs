@@ -197,8 +197,8 @@ export class Game {
             this.treasureObj.position.copy(centerPos);
             // Treasure scaling (model is likely huge). Let's try 0.01 first. 
             // The user said they couldn't see it, which means it was probably enveloping the whole map.
-            // Update: User requested 1/5th of 0.00033 = 0.000066
-            this.treasureObj.scale.set(0.000066, 0.000066, 0.000066);
+            // Update: User requested 2x size of 0.000066 = 0.000132
+            this.treasureObj.scale.set(0.000132, 0.000132, 0.000132);
             // User requested height to be matches giant enemy height
             this.treasureObj.position.y = 6.0;
 
@@ -232,6 +232,11 @@ export class Game {
             const treasureLight = new THREE.PointLight(0xffa500, 10, 15);
             treasureLight.position.copy(this.treasureObj.position);
             this.scene.add(treasureLight);
+
+            // Add continuous lightning striking out from treasure
+            if (this.vfxManager) {
+                this.vfxManager.continuousTreasureLightning(this.treasureObj.position);
+            }
         }
 
         // Add 4 FireBases just outside the Boss Patrol route (boss at +/- 4, FireBase at +/- 6)
@@ -274,6 +279,13 @@ export class Game {
                 // Lower it very slightly to ensure feet touch the ground
                 fireBase.position.y = 0;
                 this.scene.add(fireBase);
+
+                // Add continuous fire effect on top of the base
+                if (this.vfxManager) {
+                    const firePos = pos.clone();
+                    firePos.y += 2.0; // Place fire slightly above the base model
+                    this.vfxManager.continuousFire(firePos);
+                }
             });
         }
     }

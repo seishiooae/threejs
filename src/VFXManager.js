@@ -121,6 +121,106 @@ export class VFXManager {
         this._createExplosionGroup(worldPos);
     }
 
+    /** Continuous Fire Effect for FireBases */
+    continuousFire(worldPos) {
+        if (!this._ready) {
+            setTimeout(() => this.continuousFire(worldPos), 500);
+            return;
+        }
+
+        // Looping fire column
+        const risingFlame = new ParticleSystem({
+            duration: 1.0, looping: true, // LOOPING is true
+            startLife: new IntervalValue(0.8, 1.5),
+            startSpeed: new IntervalValue(1, 3),
+            startSize: new IntervalValue(1.5, 3.5),
+            startRotation: new IntervalValue(-Math.PI, Math.PI),
+            startColor: new ConstantColor(new THREE.Vector4(1, 0.7, 0.2, 1)),
+            worldSpace: true, maxParticle: 40,
+            emissionOverTime: new ConstantValue(25), // Continuous emission rate
+            emissionBursts: [],
+            shape: new SphereEmitter({ radius: 0.5, arc: Math.PI * 2, thickness: 1 }),
+            material: this._makeFireMat(),
+            renderMode: RenderMode.BillBoard, renderOrder: 2, autoDestroy: false,
+        });
+        risingFlame.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(1, 0.5, 0.05, 1), new THREE.Vector4(0.6, 0.05, 0.0, 0))));
+        risingFlame.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.3, 0.6, 1, 0.4), 0]])));
+        risingFlame.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 3, Math.PI / 3)));
+        risingFlame.addBehavior(new ApplyForce(new THREE.Vector3(0, 8, 0), new ConstantValue(1)));
+        this._addSystem(risingFlame, worldPos);
+
+        // Looping Smoke
+        const smoke = new ParticleSystem({
+            duration: 2.0, looping: true,
+            startLife: new IntervalValue(1.5, 2.8),
+            startSpeed: new IntervalValue(0.5, 2),
+            startSize: new IntervalValue(2, 4),
+            startRotation: new IntervalValue(-Math.PI, Math.PI),
+            startColor: new RandomColor(new THREE.Vector4(0.5, 0.5, 0.5, 0.4), new THREE.Vector4(0.8, 0.8, 0.8, 0.5)),
+            worldSpace: true, maxParticle: 20,
+            emissionOverTime: new ConstantValue(8),
+            emissionBursts: [],
+            shape: new SphereEmitter({ radius: 0.6, arc: Math.PI * 2, thickness: 1 }),
+            material: this._makeSmokeMat(),
+            renderMode: RenderMode.BillBoard, renderOrder: -1, autoDestroy: false,
+        });
+        smoke.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(0.7, 0.7, 0.7, 0.4), new THREE.Vector4(0.3, 0.3, 0.3, 0))));
+        smoke.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.3, 0.6, 1, 0.9), 0]])));
+        smoke.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 4, Math.PI / 4)));
+        smoke.addBehavior(new ApplyForce(new THREE.Vector3(0, 5, 0), new ConstantValue(1)));
+        this._addSystem(smoke, worldPos);
+    }
+
+    /** Continuous Lightning arcing outward from Treasure */
+    continuousTreasureLightning(centerPos) {
+        if (!this._ready) {
+            setTimeout(() => this.continuousTreasureLightning(centerPos), 500);
+            return;
+        }
+
+        // Function that repeatedly strikes outward from the treasure
+        const spawnArc = () => {
+            if (!this.scene) return;
+
+            // Random target point around the treasure
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 6 + Math.random() * 4; // Branches out 6-10 units
+            const targetPos = new THREE.Vector3(
+                centerPos.x + Math.cos(angle) * radius,
+                centerPos.y - 4 + (Math.random() * 8), // Random height around center
+                centerPos.z + Math.sin(angle) * radius
+            );
+
+            // Create a fast, thin, purely visual bolt without warning circles or damage
+            const bolt = new LightningBolt(this.scene, this.flashLight);
+            // We want it to strike from the treasure to the target
+            bolt.mesh.position.copy(centerPos);
+            // Bolt visually strikes downwards towards ground by default, so we point it
+            // Adjust bolt logic to strike to the specific vector 
+            bolt.mesh.lookAt(targetPos);
+            bolt.mesh.rotateX(Math.PI / 2); // Correct orientation for cylinder
+
+            // Make them very quick and thin
+            bolt.mesh.scale.set(0.3, targetPos.distanceTo(centerPos), 0.3);
+
+            this.activeLightning.push(bolt);
+
+            // Force it active and simulate the flash manually without the warning ring delay
+            bolt.active = true;
+            bolt.life = 0;
+            // Shorter life span for rapid bolts
+            bolt.maxLife = 0.5 + Math.random() * 0.5;
+
+            // Schedule the next bolt randomly between 50ms and 500ms
+            setTimeout(spawnArc, 50 + Math.random() * 450);
+        };
+
+        // Start 3 independent arcing processes to ensure lots of lightning
+        spawnArc();
+        setTimeout(spawnArc, 100);
+        setTimeout(spawnArc, 200);
+    }
+
     /** Call every frame */
     update(delta) {
         this.batchRenderer.update(delta);
