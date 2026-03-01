@@ -128,46 +128,46 @@ export class VFXManager {
             return;
         }
 
-        // Looping fire column
+        // Looping fire column - Tighter base, faster rise for more realism
         const risingFlame = new ParticleSystem({
             duration: 1.0, looping: true, // LOOPING is true
-            startLife: new IntervalValue(0.8, 1.5),
-            startSpeed: new IntervalValue(1, 3),
-            startSize: new IntervalValue(1.5, 3.5),
+            startLife: new IntervalValue(0.6, 1.2),
+            startSpeed: new IntervalValue(2, 5),
+            startSize: new IntervalValue(1.0, 2.5),
             startRotation: new IntervalValue(-Math.PI, Math.PI),
-            startColor: new ConstantColor(new THREE.Vector4(1, 0.7, 0.2, 1)),
-            worldSpace: true, maxParticle: 40,
-            emissionOverTime: new ConstantValue(25), // Continuous emission rate
+            startColor: new ConstantColor(new THREE.Vector4(1, 0.8, 0.3, 1)),
+            worldSpace: true, maxParticle: 60,
+            emissionOverTime: new ConstantValue(40), // Continuous emission rate
             emissionBursts: [],
-            shape: new SphereEmitter({ radius: 0.5, arc: Math.PI * 2, thickness: 1 }),
+            shape: new SphereEmitter({ radius: 0.25, arc: Math.PI * 2, thickness: 1 }),
             material: this._makeFireMat(),
             renderMode: RenderMode.BillBoard, renderOrder: 2, autoDestroy: false,
         });
-        risingFlame.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(1, 0.5, 0.05, 1), new THREE.Vector4(0.6, 0.05, 0.0, 0))));
-        risingFlame.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.3, 0.6, 1, 0.4), 0]])));
+        risingFlame.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(1, 0.6, 0.1, 1), new THREE.Vector4(0.8, 0.1, 0.0, 0))));
+        risingFlame.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.2, 0.8, 1.0, 0.3), 0]])));
         risingFlame.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 3, Math.PI / 3)));
-        risingFlame.addBehavior(new ApplyForce(new THREE.Vector3(0, 8, 0), new ConstantValue(1)));
+        risingFlame.addBehavior(new ApplyForce(new THREE.Vector3(0, 12, 0), new ConstantValue(1)));
         this._addSystem(risingFlame, worldPos);
 
         // Looping Smoke
         const smoke = new ParticleSystem({
             duration: 2.0, looping: true,
-            startLife: new IntervalValue(1.5, 2.8),
-            startSpeed: new IntervalValue(0.5, 2),
-            startSize: new IntervalValue(2, 4),
+            startLife: new IntervalValue(1.5, 2.5),
+            startSpeed: new IntervalValue(1.0, 3.0),
+            startSize: new IntervalValue(1.5, 3.0),
             startRotation: new IntervalValue(-Math.PI, Math.PI),
-            startColor: new RandomColor(new THREE.Vector4(0.5, 0.5, 0.5, 0.4), new THREE.Vector4(0.8, 0.8, 0.8, 0.5)),
-            worldSpace: true, maxParticle: 20,
-            emissionOverTime: new ConstantValue(8),
+            startColor: new RandomColor(new THREE.Vector4(0.5, 0.5, 0.5, 0.5), new THREE.Vector4(0.8, 0.8, 0.8, 0.6)),
+            worldSpace: true, maxParticle: 30,
+            emissionOverTime: new ConstantValue(12),
             emissionBursts: [],
-            shape: new SphereEmitter({ radius: 0.6, arc: Math.PI * 2, thickness: 1 }),
+            shape: new SphereEmitter({ radius: 0.3, arc: Math.PI * 2, thickness: 1 }),
             material: this._makeSmokeMat(),
             renderMode: RenderMode.BillBoard, renderOrder: -1, autoDestroy: false,
         });
-        smoke.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(0.7, 0.7, 0.7, 0.4), new THREE.Vector4(0.3, 0.3, 0.3, 0))));
-        smoke.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.3, 0.6, 1, 0.9), 0]])));
+        smoke.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(0.7, 0.7, 0.7, 0.5), new THREE.Vector4(0.3, 0.3, 0.3, 0))));
+        smoke.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.3, 0.7, 1.2, 1.0), 0]])));
         smoke.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 4, Math.PI / 4)));
-        smoke.addBehavior(new ApplyForce(new THREE.Vector3(0, 5, 0), new ConstantValue(1)));
+        smoke.addBehavior(new ApplyForce(new THREE.Vector3(0, 6, 0), new ConstantValue(1)));
         this._addSystem(smoke, worldPos);
     }
 
@@ -184,10 +184,10 @@ export class VFXManager {
 
             // Random target point around the treasure
             const angle = Math.random() * Math.PI * 2;
-            const radius = 6 + Math.random() * 4; // Branches out 6-10 units
+            const radius = 1.0 + Math.random() * 1.5; // Branches out 1-2.5 units (reduced from 6-10)
             const targetPos = new THREE.Vector3(
                 centerPos.x + Math.cos(angle) * radius,
-                centerPos.y - 4 + (Math.random() * 8), // Random height around center
+                centerPos.y - 1 + (Math.random() * 2), // Random height closer to center
                 centerPos.z + Math.sin(angle) * radius
             );
 
