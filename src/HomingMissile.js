@@ -90,8 +90,9 @@ export class HomingMissile {
 
         // Initial velocity: shoot sideways parallel to the ground, so it has to curve into the player
         this.velocity = new THREE.Vector3();
-        if (targetPlayer && targetPlayer.mesh) {
-            const toPlayer = targetPlayer.mesh.position.clone().sub(position);
+        if (targetPlayer) {
+            const playerPos = targetPlayer.getPosition ? targetPlayer.getPosition() : targetPlayer.mesh.position;
+            const toPlayer = playerPos.clone().sub(position);
             toPlayer.y = 0; // Strictly horizontal
             toPlayer.normalize();
 
