@@ -188,7 +188,8 @@ export class Game {
             this.treasureObj.position.copy(centerPos);
             // Treasure scaling (model is likely huge). Let's try 0.01 first. 
             // The user said they couldn't see it, which means it was probably enveloping the whole map.
-            this.treasureObj.scale.set(0.01, 0.01, 0.01);
+            // Update: User said it's still 30x too big. 0.01 / 30 = ~0.00033
+            this.treasureObj.scale.set(0.00033, 0.00033, 0.00033);
             this.treasureObj.position.y = 2.0;
 
             // Adjust materials if needed
