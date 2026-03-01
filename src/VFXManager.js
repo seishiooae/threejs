@@ -192,6 +192,7 @@ export class VFXManager {
 
             // Create a fast, thin, purely visual bolt
             const bolt = new LightningBolt(this.scene, null); // No flashlight
+            bolt.disableGlow = true; // User requested no blue glow, only the zigzag lines
 
             this.activeLightning.push(bolt);
 
@@ -547,6 +548,7 @@ class LightningBolt {
         this.bolts = [];
         this.glowBolts = [];
         this.active = false;
+        this.disableGlow = false;
         this.lifetime = 0;
         this.maxLifetime = 0.4;
         this.flickerTimer = 0;
@@ -672,8 +674,11 @@ class LightningBolt {
     _buildBolt(skyPos, targetPos) {
         const mainPath = this._generateBoltPath(skyPos, targetPos, 14, 3.0);
         this.bolts.push(this._createBoltLine(mainPath, 0xffffff, 2, 1.0));
-        this.glowBolts.push(this._createGlowTube(mainPath, 0x6688ff, 0.3, 0.5));
-        this.glowBolts.push(this._createGlowTube(mainPath, 0x4466cc, 0.7, 0.2));
+
+        if (!this.disableGlow) {
+            this.glowBolts.push(this._createGlowTube(mainPath, 0x6688ff, 0.3, 0.5));
+            this.glowBolts.push(this._createGlowTube(mainPath, 0x4466cc, 0.7, 0.2));
+        }
 
         const mainPath2 = this._generateBoltPath(skyPos, targetPos, 10, 2.0);
         this.bolts.push(this._createBoltLine(mainPath2, 0xaaccff, 1, 0.7));
@@ -686,7 +691,10 @@ class LightningBolt {
                 ));
                 const branchPath = this._generateBoltPath(branchStart, branchEnd, 5, 1.5);
                 this.bolts.push(this._createBoltLine(branchPath, 0x88aaff, 1, 0.6));
-                this.glowBolts.push(this._createGlowTube(branchPath, 0x4466cc, 0.15, 0.25));
+
+                if (!this.disableGlow) {
+                    this.glowBolts.push(this._createGlowTube(branchPath, 0x4466cc, 0.15, 0.25));
+                }
 
                 if (Math.random() < 0.4 && branchPath.length > 2) {
                     const subStart = branchPath[Math.floor(branchPath.length / 2)].clone();
