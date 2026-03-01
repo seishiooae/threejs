@@ -253,6 +253,11 @@ export class Game {
                 maxZ: stepMesh.position.z + stepDepth / 2,
                 height: currentHeight
             });
+
+            // Add to level walls so small enemies collide with it
+            if (this.level && this.level.walls) {
+                this.level.walls.push(stepMesh);
+            }
         }
 
         // Register the main platform for Player Y-elevation logic
@@ -264,6 +269,11 @@ export class Game {
             maxZ: platformMesh.position.z + platformDepth / 2,
             height: platformHeight
         });
+
+        // Add main platform to level walls so small enemies collide with it
+        if (this.level && this.level.walls) {
+            this.level.walls.push(platformMesh);
+        }
 
         this.scene.add(stairsGroup);
 

@@ -1526,8 +1526,10 @@ export class Player {
             for (const bound of this.game.terrainBounds) {
                 // Check if player XZ is within this bound's XZ limits
                 if (px >= bound.minX && px <= bound.maxX && pz >= bound.minZ && pz <= bound.maxZ) {
-                    // Find the highest overlapping bounded surface
-                    if (bound.height > targetGroundY) {
+                    // Find the highest overlapping bounded surface that the player can step onto
+                    // Provide a step-up height limit (0.6m max per step) so they can't teleport up a 1.5m wall.
+                    const currentFeetY = this.pivot.position.y - 1.6;
+                    if (bound.height > targetGroundY && Math.abs(currentFeetY - bound.height) <= 0.6) {
                         targetGroundY = bound.height;
                     }
                 }
