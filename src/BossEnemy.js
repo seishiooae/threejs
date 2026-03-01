@@ -464,9 +464,12 @@ export class BossEnemy {
 
     updatePatrol(delta) {
         const targetPos = this.waypoints[this.currentWaypointIndex];
-        const dist = this.mesh.position.distanceTo(targetPos);
+        // Use 2D distance for waypoint checking since mesh is Y=0 and waypoint is Y=1.5
+        const dx = targetPos.x - this.mesh.position.x;
+        const dz = targetPos.z - this.mesh.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
 
-        if (dist < 1.0) {
+        if (dist < 1.5) {
             // Reached waypoint, go to next
             this.currentWaypointIndex = (this.currentWaypointIndex + 1) % this.waypoints.length;
         }
@@ -481,13 +484,15 @@ export class BossEnemy {
         let normalizedDiff = Math.atan2(Math.sin(diff), Math.cos(diff));
         this.mesh.rotation.y += Math.sign(normalizedDiff) * Math.min(Math.abs(normalizedDiff), this.TURN_SPEED * delta);
 
-        // ALWAYS move forward in the direction we are facing to avoid getting stuck in turning loops
-        const moveVec = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
-        moveVec.normalize().multiplyScalar(this.WALK_SPEED * delta);
+        // Move forward ONLY if mostly facing target so it sharply turns the corners 
+        // instead of walking in wide circles falling off the platform
+        if (Math.abs(normalizedDiff) < 0.5) {
+            const moveVec = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
+            moveVec.normalize().multiplyScalar(this.WALK_SPEED * delta);
 
-        // Update position but forcefully lock Y-axis to platform height so collision physics doesn't sink/raise it
-        this.mesh.position.add(moveVec);
-        this.mesh.position.y = 0; // The Object3D center is at 0, ModelWrapper handles the Y=1.5 offset 
+            this.mesh.position.add(moveVec);
+            this.mesh.position.y = 0; // Lock Y
+        }
     }
 
     updateAlert(delta) {

@@ -191,9 +191,9 @@ export class Game {
         const boss = new BossEnemy(this, centerPos, "boss_1", this.enemyAssets);
         this.enemies.push(boss);
 
-        // Add Patrol Platform (Waypoints +/- 4, Platform +/- 5 for 1m extra width, 1.5m tall per request)
-        const platformWidth = 10;
-        const platformDepth = 10;
+        // Add Patrol Platform (Waypoints +/- 4, Platform +/- 6 for 2m extra width, 1.5m tall per request)
+        const platformWidth = 12;
+        const platformDepth = 12;
         const platformHeight = 1.5;
         const platformGeo = new THREE.BoxGeometry(platformWidth, platformHeight, platformDepth);
 
@@ -260,10 +260,10 @@ export class Game {
             }
         }
 
-        // Add 4 FireBases to sit beside the 10x10 platform (on the ground)
+        // Add 4 FireBases to sit beside the 12x12 platform (on the ground)
         if (this.enemyAssets.fireBaseModel) {
-            // Platform corners are at +/- 5 from center, so 6.0 puts them just outside the platform
-            const platformOffset = 6.0;
+            // Platform corners are at +/- 6 from center, so 7.0 puts them just outside the platform
+            const platformOffset = 7.0;
             // The Firebases should sit on the ground
             const platformSurfaceY = 0.0;
 
