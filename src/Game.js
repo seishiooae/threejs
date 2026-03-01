@@ -455,9 +455,10 @@ export class Game {
                             console.log(`[Game] Hit Enemy ${targetId} !Sending damage to server...`);
                             if (this.networkManager) {
                                 this.networkManager.sendHit(targetId, 10, direction);
-                            } else {
-                                hitEnemy.takeDamage(10, direction); // Offline fallback
                             }
+                            // ALWAYS apply damage locally so the enemy reacts immediately
+                            // (spawns homing missiles, flashes red, plays sounds, etc.)
+                            hitEnemy.takeDamage(10, direction, this.networkManager ? this.networkManager.id : null);
                         }
                     }
                 }
@@ -488,12 +489,14 @@ export class Game {
             this.remotePlayers[data.targetId].takeDamage(data.damage, dir);
         } else if (data.targetId && data.targetId.startsWith('enemy_')) {
             // It's an AI enemy taking damage
+            // Skip if THIS client was the shooter — we already applied damage locally in handleShoot
+            if (this.networkManager && data.shooterId === this.networkManager.id) return;
             const enemy = this.enemies.find(e => e.id === data.targetId);
             if (enemy) {
                 enemy.takeDamage(data.damage, dir, data.shooterId);
             }
         }
-        // NOTE: Remote player/enemy damage initiated by THIS client is handled either in fallback or network echo.
+        // NOTE: Remote player/enemy damage initiated by THIS client is handled locally in handleShoot.
     }
 
     handleEnemyStates(states) {

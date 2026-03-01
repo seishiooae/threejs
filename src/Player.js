@@ -1752,6 +1752,12 @@ export class Player {
             targets['Hit'] = 1.0;
         }
 
+        // OVERRIDE: If stunned by lightning, play the stun/standup animation exclusively
+        if (this.isStunned && this.currentAction && (this.currentAction === 'StandUpFront' || this.currentAction === 'StandUpBack')) {
+            Object.keys(targets).forEach(k => { targets[k] = 0; });
+            targets[this.currentAction] = 1.0;
+        }
+
         // 2. Apply Weights IMMEDIATELY (Lerp Disabled to prevent T-pose from partial weight)
         // const lerpSpeed = 10.0 * delta;
 
@@ -2168,17 +2174,32 @@ export class Player {
 
         console.log(`[Player] Playing Stun Animation: ${animName}`);
 
-        if (this.animations[animName]) {
-            this.setAnimationAction(animName);
+        // Set currentAction so updateAnimationWeights knows which stun anim to prioritize
+        this.currentAction = animName;
 
-            // The loading function will have clampWhenFinished=true and LoopOnce for these
-            // We listen for the single event loop to finish
+        if (this.animations[animName]) {
+            const action = this.animations[animName];
+            // Directly reset and play — fadeToAction is deprecated/empty
+            action.reset();
+            action.setEffectiveWeight(1.0);
+            action.setLoop(THREE.LoopOnce);
+            action.clampWhenFinished = true;
+            action.play();
+
+            // Zero out all other animations so only the stun plays
+            Object.keys(this.animations).forEach(key => {
+                if (key !== animName && this.animations[key]) {
+                    this.animations[key].setEffectiveWeight(0);
+                }
+            });
+
+            // Listen for the animation to finish
             const onAnimationFinished = (e) => {
-                if (e.action === this.animations[animName]) {
+                if (e.action === action) {
                     this.mixer.removeEventListener('finished', onAnimationFinished);
                     if (!this.isDead) {
                         this.isStunned = false;
-                        this.setAnimationAction('Idle');
+                        this.currentAction = 'Idle';
                         console.log("[Player] Recovered from stun!");
                     }
                 }
@@ -2190,13 +2211,17 @@ export class Player {
                 if (this.isStunned && !this.isDead) {
                     this.mixer.removeEventListener('finished', onAnimationFinished);
                     this.isStunned = false;
-                    this.setAnimationAction('Idle');
+                    this.currentAction = 'Idle';
                 }
-            }, 3500); // Max stun time fallback
+            }, 5000); // Max stun time fallback
         } else {
+            console.warn(`[Player] Stun animation '${animName}' not loaded yet!`);
             // Fallback if animations not loaded yet
             setTimeout(() => {
-                if (!this.isDead) this.isStunned = false;
+                if (!this.isDead) {
+                    this.isStunned = false;
+                    this.currentAction = 'Idle';
+                }
             }, 2000);
         }
     }
