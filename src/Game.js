@@ -188,13 +188,21 @@ export class Game {
             this.treasureObj.position.copy(centerPos);
             // Treasure scaling (model is likely huge). Let's try 0.01 first. 
             // The user said they couldn't see it, which means it was probably enveloping the whole map.
-            // Update: User said it's still 30x too big. 0.01 / 30 = ~0.00033
-            this.treasureObj.scale.set(0.00033, 0.00033, 0.00033);
-            this.treasureObj.position.y = 2.0;
+            // Update: User requested 1/5th of 0.00033 = 0.000066
+            this.treasureObj.scale.set(0.000066, 0.000066, 0.000066);
+            // User requested height to be higher than Boss's head. Boss is scaled 3x (approx 6 units tall).
+            this.treasureObj.position.y = 12.0;
 
-            // Adjust materials if needed
+            // Adjust materials and hide collision meshes
             this.treasureObj.traverse((child) => {
                 if (child.isMesh) {
+                    // Hide Unreal Engine collision capsules
+                    const name = child.name.toLowerCase();
+                    if (name.includes('collision') || name.includes('capsule')) {
+                        child.visible = false;
+                        return;
+                    }
+
                     child.castShadow = true;
                     if (child.material) {
                         child.material = new THREE.MeshStandardMaterial({
@@ -226,13 +234,29 @@ export class Game {
 
             fireBasePositions.forEach(pos => {
                 const fireBase = SkeletonUtils.clone(this.enemyAssets.fireBaseModel);
-                // Scale to player size. The user requested "サイズはプレイヤーと同じにしてください"
+                // Scale to player size
                 const scale = 0.000185;
                 fireBase.scale.set(scale, scale, scale);
-                // The geometry might need rotation depending on the FBX orientation
+                // Models exported from UE often need this rotation
                 fireBase.rotation.x = -Math.PI / 2;
 
+                // Ensure it has a material so it's not invisible
+                fireBase.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                        // Give it a generic metal look if no texture is loaded
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0x555555,
+                            metalness: 0.8,
+                            roughness: 0.4
+                        });
+                    }
+                });
+
                 fireBase.position.copy(pos);
+                // Lower it very slightly to ensure feet touch the ground
+                fireBase.position.y = 0;
                 this.scene.add(fireBase);
             });
         }
