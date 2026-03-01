@@ -139,7 +139,8 @@ export class VFXManager {
             worldSpace: true, maxParticle: 60,
             emissionOverTime: new ConstantValue(40), // Continuous emission rate
             emissionBursts: [],
-            shape: new SphereEmitter({ radius: 0.25, arc: Math.PI * 2, thickness: 1 }),
+            // Use PointEmitter so particles don't spawn outward, and rise straight up
+            shape: new PointEmitter(),
             material: this._makeFireMat(),
             renderMode: RenderMode.BillBoard, renderOrder: 2, autoDestroy: false,
         });
@@ -160,7 +161,8 @@ export class VFXManager {
             worldSpace: true, maxParticle: 30,
             emissionOverTime: new ConstantValue(12),
             emissionBursts: [],
-            shape: new SphereEmitter({ radius: 0.3, arc: Math.PI * 2, thickness: 1 }),
+            // Point emitter for straight up pillar of smoke
+            shape: new PointEmitter(),
             material: this._makeSmokeMat(),
             renderMode: RenderMode.BillBoard, renderOrder: -1, autoDestroy: false,
         });
@@ -184,10 +186,10 @@ export class VFXManager {
 
             // Random target point around the treasure
             const angle = Math.random() * Math.PI * 2;
-            const radius = 1.0 + Math.random() * 1.5; // Branches out 1-2.5 units (reduced from 6-10)
+            const radius = 0.3 + Math.random() * 0.5; // Branches out 0.3 - 0.8 units (sub-1 meter)
             const targetPos = new THREE.Vector3(
                 centerPos.x + Math.cos(angle) * radius,
-                centerPos.y - 1 + (Math.random() * 2), // Random height closer to center
+                centerPos.y - 0.5 + Math.random(), // Closer to vertical center
                 centerPos.z + Math.sin(angle) * radius
             );
 
