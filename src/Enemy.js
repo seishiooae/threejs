@@ -190,6 +190,8 @@ export class Enemy {
             }
         }
 
+        if (window.domLog) window.domLog(`hit: target=${target ? target.id : 'null'}`);
+
         if (target) {
             const now = performance.now();
             // 3000ms cooldown for missile barrage
@@ -215,12 +217,16 @@ export class Enemy {
                     // Allow firing 3 missiles even if the enemy died from this shot
                     if (volleyCount >= 3) return;
 
+                    if (window.domLog) window.domLog(`fireHomingMissile: spawnPos=${this.mesh.position.y.toFixed(2)}`);
+
                     // Spawn missile slightly above Enemy chest
                     const spawnPos = this.mesh.position.clone();
                     spawnPos.y += 1.5;
 
                     const missile = new HomingMissile(this.game, spawnPos, target, missileOptions);
                     this.game.projectiles.push(missile);
+
+                    if (window.domLog) window.domLog(`missile pushed. total=${this.game.projectiles.length}`);
 
                     // Missile launch VFX
                     try { if (this.game.vfx) this.game.vfx.missileLaunch(spawnPos); } catch (e) { console.warn('VFX missileLaunch error:', e); }

@@ -90,22 +90,25 @@ export class Player {
         this.isDead = true;
         console.log(`[Player ${this.id}] DIED!`);
 
-        // Freeze animations at current pose (don't revert to T-pose)
-        if (this.mixer) {
-            this.mixer.timeScale = 0;
-        }
-
-        // Initialize ragdoll timer for limp pose transition
-        this.ragdollTime = 0;
-        this.isRagdolling = true;
-
         // Create ragdoll using PhysicsManager (mesh follows physics automatically)
         // ONLY the local player simulates their own ragdoll physics body. Network will sync it to others.
         if (this.isLocal && this.game && this.game.physicsManager) {
             this.game.physicsManager.createRagdoll(this, impulseDirection, this.game.scene);
+        } else {
+            // Fallback since ragdoll is removed: Tumble the player over
+            if (this.mesh) {
+                // Tumble backwards flat on the ground
+                this.mesh.rotation.x = -Math.PI / 2;
+                this.mesh.position.y = 0.2; // roughly ground level
+            }
         }
 
-        // Hide weapon during ragdoll (attached to hand bone, looks odd)
+        // Freeze animations at current pose now that player is tumbled
+        if (this.mixer) {
+            this.mixer.timeScale = 0;
+        }
+
+        // Hide weapon during dead state (attached to hand bone, looks odd when flat)
         if (this.weapon) {
             this.weapon.visible = false;
         }

@@ -673,7 +673,7 @@ class WarningCircle {
         this.innerMesh = null;
         this.active = false;
         this.timer = 0;
-        this.duration = 0.6; // Speed up lightning strike from 1.0s to 0.6s
+        this.duration = 0.2; // Speed up lightning strike to 0.2s (extremely fast)
         this.pos = new THREE.Vector3();
         this.onComplete = null;
     }
