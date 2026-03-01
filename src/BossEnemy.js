@@ -127,12 +127,12 @@ export class BossEnemy {
         this.modelWrapper.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(this.modelWrapper);
         // We add the absolute value of the lowest point to shift the model up so feet sit on Y=1.5 (Platform Surface).
-        // Since the Boss is 3x scale, the T-pose hands hang roughly 1.5m lower than the feet. 
-        // So we subtract 1.5m from the lowest point to find the true feet baseline, then add 1.5 for the platform height.
+        // Since the Boss is 3x scale, the T-pose hands hang lower than the feet. 
+        // -1.5m caused slight burying, and -0.5m caused floating. -1.2m should perfectly anchor the feet.
         if (box.min.y < 0) {
-            this.modelWrapper.position.y = Math.abs(box.min.y) - 1.5 + 1.5;
+            this.modelWrapper.position.y = Math.abs(box.min.y) - 1.2 + 1.5;
         } else {
-            this.modelWrapper.position.y = -1.5 + 1.5;
+            this.modelWrapper.position.y = -1.2 + 1.5;
         }
 
         // Apply hostile dark material and TGA Texture
