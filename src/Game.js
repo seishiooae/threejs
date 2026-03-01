@@ -191,6 +191,26 @@ export class Game {
         const boss = new BossEnemy(this, centerPos, "boss_1", this.enemyAssets);
         this.enemies.push(boss);
 
+        // Add Patrol Platform (Waypoints +/- 4, Platform +/- 5 for 1m extra width, 1m tall)
+        const platformWidth = 10;
+        const platformDepth = 10;
+        const platformHeight = 1.0;
+        const platformGeo = new THREE.BoxGeometry(platformWidth, platformHeight, platformDepth);
+        // Using a built-in crate or dark material
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.9, metalness: 0.2 });
+        const platformMesh = new THREE.Mesh(platformGeo, platformMat);
+
+        // Position it under the center Pos. Y is normally 0 for ground, so we center Y at platformHeight/2
+        platformMesh.position.set(centerPos.x, platformHeight / 2, centerPos.z);
+        platformMesh.receiveShadow = true;
+        platformMesh.castShadow = true;
+        this.scene.add(platformMesh);
+
+        // Add physics to platform so player can't walk through it (Requires PhysicsManager update)
+        if (this.physicsManager) {
+            this.physicsManager.addStaticBox(platformMesh.position, platformWidth, platformHeight, platformDepth);
+        }
+
         // Add Rotating Treasure above Boss
         if (this.enemyAssets.treasureModel) {
             this.treasureObj = SkeletonUtils.clone(this.enemyAssets.treasureModel);
@@ -239,13 +259,18 @@ export class Game {
             }
         }
 
-        // Add 4 FireBases just outside the Boss Patrol route (boss at +/- 4, FireBase at +/- 6)
+        // Add 4 FireBases to the 4 corners of the 10x10 platform
         if (this.enemyAssets.fireBaseModel) {
+            // Platform corners are at +/- 5 from center
+            const platformOffset = 5.0;
+            // The platform surface is at Y = 1.0 (height is 1.0)
+            const platformSurfaceY = 1.0;
+
             const fireBasePositions = [
-                new THREE.Vector3(centerPos.x - 6, 0, centerPos.z - 6),
-                new THREE.Vector3(centerPos.x + 6, 0, centerPos.z - 6),
-                new THREE.Vector3(centerPos.x + 6, 0, centerPos.z + 6),
-                new THREE.Vector3(centerPos.x - 6, 0, centerPos.z + 6)
+                new THREE.Vector3(centerPos.x - platformOffset, platformSurfaceY, centerPos.z - platformOffset),
+                new THREE.Vector3(centerPos.x + platformOffset, platformSurfaceY, centerPos.z - platformOffset),
+                new THREE.Vector3(centerPos.x + platformOffset, platformSurfaceY, centerPos.z + platformOffset),
+                new THREE.Vector3(centerPos.x - platformOffset, platformSurfaceY, centerPos.z + platformOffset)
             ];
 
             fireBasePositions.forEach(pos => {
@@ -276,8 +301,6 @@ export class Game {
                 });
 
                 fireBase.position.copy(pos);
-                // Lower it very slightly to ensure feet touch the ground
-                fireBase.position.y = 0;
                 this.scene.add(fireBase);
 
                 // Add continuous fire effect on top of the base
