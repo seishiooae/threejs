@@ -61,8 +61,6 @@ export class Game {
         // Initialize VFX particle system
         this.vfx = new VFXManager(this.scene);
 
-        this.setupDOMDebugger();
-
         // Start animation immediately so the screen doesn't stay black
         this.animate();
 
@@ -72,34 +70,6 @@ export class Game {
         });
     }
 
-    setupDOMDebugger() {
-        if (document.getElementById('onscreen-debugger')) return;
-        const d = document.createElement('div');
-        d.id = 'onscreen-debugger';
-        d.style.position = 'absolute';
-        d.style.top = '60px';
-        d.style.right = '10px';
-        d.style.width = '350px';
-        d.style.height = '400px';
-        d.style.backgroundColor = 'rgba(0,0,0,0.8)';
-        d.style.color = '#00ff00';
-        d.style.zIndex = '999999';
-        d.style.overflow = 'auto';
-        d.style.padding = '10px';
-        d.style.fontFamily = 'monospace';
-        d.style.pointerEvents = 'none';
-        d.style.border = '2px solid #00ff00';
-        document.body.appendChild(d);
-
-        window.domLog = (msg) => {
-            console.log(msg);
-            const p = document.createElement('div');
-            p.innerText = msg;
-            d.appendChild(p);
-            d.scrollTop = d.scrollHeight;
-        };
-        window.domLog("DOM Debugger attached. Ready for Missile tracking.");
-    }
 
     async loadEnemyAssets() {
         return new Promise((resolve) => {
