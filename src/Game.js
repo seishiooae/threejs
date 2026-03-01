@@ -225,13 +225,13 @@ export class Game {
             this.scene.add(treasureLight);
         }
 
-        // Add 4 FireBases outside the Boss Patrol route (corners are at +/- 15 now, boss patrols at +/- 12)
+        // Add 4 FireBases around the Boss Patrol route (corners are at +/- 5)
         if (this.enemyAssets.fireBaseModel) {
             const fireBasePositions = [
-                new THREE.Vector3(centerPos.x - 15, 0, centerPos.z - 15),
-                new THREE.Vector3(centerPos.x + 15, 0, centerPos.z - 15),
-                new THREE.Vector3(centerPos.x + 15, 0, centerPos.z + 15),
-                new THREE.Vector3(centerPos.x - 15, 0, centerPos.z + 15)
+                new THREE.Vector3(centerPos.x - 5, 0, centerPos.z - 5),
+                new THREE.Vector3(centerPos.x + 5, 0, centerPos.z - 5),
+                new THREE.Vector3(centerPos.x + 5, 0, centerPos.z + 5),
+                new THREE.Vector3(centerPos.x - 5, 0, centerPos.z + 5)
             ];
 
             fireBasePositions.forEach(pos => {
