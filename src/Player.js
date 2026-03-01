@@ -1761,7 +1761,7 @@ export class Player {
         // OVERRIDE: If stunned by lightning, play the stun/standup animation exclusively
         if (this.isStunned && this.currentAction && (this.currentAction === 'StandUpFront' || this.currentAction === 'StandUpBack')) {
             Object.keys(targets).forEach(k => { targets[k] = 0; });
-            targets[this.currentAction] = 1.0;
+            targets[this.currentAction] = 1.0; // Force the stun animation to 100% weight
         }
 
         // 2. Apply Weights IMMEDIATELY (Lerp Disabled to prevent T-pose from partial weight)
@@ -1777,7 +1777,18 @@ export class Player {
             action.setEffectiveWeight(target);
 
             // Ensure playing if it has weight
-            if (target > 0 && !action.isRunning()) action.play();
+            if (target > 0 && !action.isRunning()) {
+                if (name === 'StandUpFront' || name === 'StandUpBack') {
+                    // Don't forcefully restart stun animations if they are just paused at the end
+                    if (action.time === 0 || action.time >= action.getClip().duration) {
+                        action.reset().play();
+                    } else {
+                        action.play();
+                    }
+                } else {
+                    action.play();
+                }
+            }
         });
 
         // 3. Sync Run_Legs to Run time
@@ -2218,8 +2229,9 @@ export class Player {
                     this.mixer.removeEventListener('finished', onAnimationFinished);
                     this.isStunned = false;
                     this.currentAction = 'Idle';
+                    console.log("[Player] Recovered via fallback timer!");
                 }
-            }, 5000); // Max stun time fallback
+            }, 6000); // Increased max stun time fallback to ensure full recovery anim plays
         } else {
             console.warn(`[Player] Stun animation '${animName}' not loaded yet!`);
             // Fallback if animations not loaded yet
