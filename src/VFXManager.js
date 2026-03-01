@@ -128,40 +128,37 @@ export class VFXManager {
             return;
         }
 
-        // Looping fire column - Tighter base, faster rise for more realism
+        // Looping fire column - Slower, more vertical, less spread
         const risingFlame = new ParticleSystem({
-            duration: 1.0, looping: true, // LOOPING is true
-            startLife: new IntervalValue(0.6, 1.2),
-            startSpeed: new IntervalValue(2, 5),
-            startSize: new IntervalValue(1.0, 2.5),
-            startRotation: new IntervalValue(-Math.PI, Math.PI),
+            duration: 1.0, looping: true,
+            startLife: new IntervalValue(1.2, 1.8), // Slower rise means longer life to reach same height
+            startSpeed: new IntervalValue(0.5, 1.5), // Greatly reduced initial speed
+            startSize: new IntervalValue(1.0, 2.0),
+            startRotation: new ConstantValue(0), // Stop rotation to keep it looking like a straight pillar
             startColor: new ConstantColor(new THREE.Vector4(1, 0.8, 0.3, 1)),
-            worldSpace: true, maxParticle: 60,
-            emissionOverTime: new ConstantValue(40), // Continuous emission rate
+            worldSpace: true, maxParticle: 50,
+            emissionOverTime: new ConstantValue(25), // Reduced density
             emissionBursts: [],
-            // Use PointEmitter so particles don't spawn outward, and rise straight up
-            shape: new PointEmitter(),
+            shape: new PointEmitter(), // Guaranteed to start at exactly center
             material: this._makeFireMat(),
             renderMode: RenderMode.BillBoard, renderOrder: 2, autoDestroy: false,
         });
         risingFlame.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(1, 0.6, 0.1, 1), new THREE.Vector4(0.8, 0.1, 0.0, 0))));
         risingFlame.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.2, 0.8, 1.0, 0.3), 0]])));
-        risingFlame.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 3, Math.PI / 3)));
-        risingFlame.addBehavior(new ApplyForce(new THREE.Vector3(0, 12, 0), new ConstantValue(1)));
+        risingFlame.addBehavior(new ApplyForce(new THREE.Vector3(0, 4, 0), new ConstantValue(1))); // Slower upward force
         this._addSystem(risingFlame, worldPos);
 
         // Looping Smoke
         const smoke = new ParticleSystem({
             duration: 2.0, looping: true,
-            startLife: new IntervalValue(1.5, 2.5),
-            startSpeed: new IntervalValue(1.0, 3.0),
+            startLife: new IntervalValue(2.0, 3.5),
+            startSpeed: new IntervalValue(0.5, 1.5), // Slower smoke to match fire
             startSize: new IntervalValue(1.5, 3.0),
             startRotation: new IntervalValue(-Math.PI, Math.PI),
             startColor: new RandomColor(new THREE.Vector4(0.5, 0.5, 0.5, 0.5), new THREE.Vector4(0.8, 0.8, 0.8, 0.6)),
-            worldSpace: true, maxParticle: 30,
-            emissionOverTime: new ConstantValue(12),
+            worldSpace: true, maxParticle: 20, // Less dense smoke
+            emissionOverTime: new ConstantValue(8),
             emissionBursts: [],
-            // Point emitter for straight up pillar of smoke
             shape: new PointEmitter(),
             material: this._makeSmokeMat(),
             renderMode: RenderMode.BillBoard, renderOrder: -1, autoDestroy: false,
@@ -169,7 +166,7 @@ export class VFXManager {
         smoke.addBehavior(new ColorOverLife(new ColorRange(new THREE.Vector4(0.7, 0.7, 0.7, 0.5), new THREE.Vector4(0.3, 0.3, 0.3, 0))));
         smoke.addBehavior(new SizeOverLife(new PiecewiseBezier([[new Bezier(0.3, 0.7, 1.2, 1.0), 0]])));
         smoke.addBehavior(new RotationOverLife(new IntervalValue(-Math.PI / 4, Math.PI / 4)));
-        smoke.addBehavior(new ApplyForce(new THREE.Vector3(0, 6, 0), new ConstantValue(1)));
+        smoke.addBehavior(new ApplyForce(new THREE.Vector3(0, 3, 0), new ConstantValue(1))); // Slower upward force
         this._addSystem(smoke, worldPos);
     }
 
@@ -186,10 +183,10 @@ export class VFXManager {
 
             // Random target point around the treasure
             const angle = Math.random() * Math.PI * 2;
-            const radius = 0.3 + Math.random() * 0.5; // Branches out 0.3 - 0.8 units (sub-1 meter)
+            const radius = 0.3 + Math.random() * 0.4; // Slightly further in to make it look internal
             const targetPos = new THREE.Vector3(
                 centerPos.x + Math.cos(angle) * radius,
-                centerPos.y - 0.5 + Math.random(), // Closer to vertical center
+                centerPos.y + 0.5 + Math.random(), // Keep it above the ground (treasure is at y=6)
                 centerPos.z + Math.sin(angle) * radius
             );
 
@@ -201,17 +198,15 @@ export class VFXManager {
             // Strike from treasure to the generated target point
             bolt.strike(targetPos, centerPos);
 
-            // Shorter life span for rapid bolts
-            bolt.maxLifetime = 0.15 + (Math.random() * 0.1);
+            // Longer life span to make them visible longer
+            bolt.maxLifetime = 0.2 + (Math.random() * 0.2);
 
-            // Schedule the next bolt randomly between 50ms and 500ms
-            setTimeout(spawnArc, 50 + Math.random() * 450);
+            // Slower generation (less dense, distinct zigzags)
+            setTimeout(spawnArc, 400 + Math.random() * 600);
         };
 
-        // Start 3 independent arcing processes to ensure lots of lightning
+        // Start only 1 arcing process so it's not a cluster of dense lightning
         spawnArc();
-        setTimeout(spawnArc, 100);
-        setTimeout(spawnArc, 200);
     }
 
     /** Call every frame */
