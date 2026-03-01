@@ -80,7 +80,7 @@ export class Game {
             let loadedCount = 0;
             const checkDone = () => {
                 loadedCount++;
-                if (loadedCount >= 7) resolve(); // Increased to 7 for FireBase and other assets
+                if (loadedCount >= 8) resolve(); // Increased to 8 for FireBase texture
             };
 
             console.log('[Game] Loading centralized enemy assets...');
@@ -154,6 +154,15 @@ export class Game {
                 checkDone();
             }, undefined, (err) => {
                 console.error('[Game] Failed to load Kongou999.TGA texture (Missing file?):', err);
+                checkDone();
+            });
+
+            // 7. Load FireBase Texture
+            tgaLoader.load('/models/enemy/T_Main.TGA', (texture) => {
+                this.enemyAssets.fireBaseTexture = texture;
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load T_Main.TGA texture:', err);
                 checkDone();
             });
         });
@@ -251,11 +260,12 @@ export class Game {
 
                         child.castShadow = true;
                         child.receiveShadow = true;
-                        // Give it a generic metal look if no texture is loaded
+                        // Apply the requested T_Main.TGA texture
                         child.material = new THREE.MeshStandardMaterial({
-                            color: 0x555555,
-                            metalness: 0.8,
-                            roughness: 0.4
+                            map: this.enemyAssets.fireBaseTexture,
+                            color: 0xffffff, // White base color so texture shows accurately
+                            metalness: 0.1,  // Reduced metalness for better texture visibility depending on the prop style
+                            roughness: 0.8
                         });
                     }
                 });
