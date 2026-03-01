@@ -193,6 +193,7 @@ export class VFXManager {
             // Create a fast, thin, purely visual bolt
             const bolt = new LightningBolt(this.scene, null); // No flashlight
             bolt.disableGlow = true; // User requested no blue glow, only the zigzag lines
+            bolt.isLocalArc = true; // Prevent branches from shooting downwards to ground
 
             this.activeLightning.push(bolt);
 
@@ -550,6 +551,7 @@ class LightningBolt {
         this.glowBolts = [];
         this.active = false;
         this.disableGlow = false;
+        this.isLocalArc = false;
         this.lifetime = 0;
         this.maxLifetime = 0.4;
         this.flickerTimer = 0;
@@ -662,7 +664,10 @@ class LightningBolt {
         this.active = true;
         this.lifetime = 0;
         this._buildBolt(this.sourcePos, targetPos);
-        this._createImpactSparks(targetPos);
+
+        if (!this.isLocalArc) {
+            this._createImpactSparks(targetPos);
+        }
 
         if (this.flashLight) {
             this.flashLight.position.copy(targetPos);
@@ -687,8 +692,11 @@ class LightningBolt {
         for (let i = 0; i < mainPath.length; i++) {
             if (Math.random() < 0.35 && i > 2 && i < mainPath.length - 2) {
                 const branchStart = mainPath[i].clone();
+                // If it's a local arc, spread randomly. Else, strictly downwards to ground.
+                const branchYOffset = this.isLocalArc ? (Math.random() - 0.5) * 6 : -(2 + Math.random() * 6);
+
                 const branchEnd = branchStart.clone().add(new THREE.Vector3(
-                    (Math.random() - 0.5) * 10, -(2 + Math.random() * 6), (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10, branchYOffset, (Math.random() - 0.5) * 10,
                 ));
                 const branchPath = this._generateBoltPath(branchStart, branchEnd, 5, 1.5);
                 this.bolts.push(this._createBoltLine(branchPath, 0x88aaff, 1, 0.6));
@@ -699,8 +707,9 @@ class LightningBolt {
 
                 if (Math.random() < 0.4 && branchPath.length > 2) {
                     const subStart = branchPath[Math.floor(branchPath.length / 2)].clone();
+                    const subYOffset = this.isLocalArc ? (Math.random() - 0.5) * 4 : -(1 + Math.random() * 3);
                     const subEnd = subStart.clone().add(new THREE.Vector3(
-                        (Math.random() - 0.5) * 5, -(1 + Math.random() * 3), (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 5, subYOffset, (Math.random() - 0.5) * 5,
                     ));
                     const subPath = this._generateBoltPath(subStart, subEnd, 3, 0.8);
                     this.bolts.push(this._createBoltLine(subPath, 0x6688cc, 1, 0.4));
