@@ -1,0 +1,46 @@
+Begin Object Class=/Script/Engine.Material Name="M_MainAsia"
+   Begin Object Class=/Script/UnrealEd.SceneThumbnailInfoWithPrimitive Name="SceneThumbnailInfoWithPrimitive_0"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionTextureSample Name="MaterialExpressionTextureSample_0"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant Name="MaterialExpressionConstant_1"
+   End Object
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant Name="MaterialExpressionConstant_0"
+   End Object
+   Begin Object Name="SceneThumbnailInfoWithPrimitive_0"
+   End Object
+   Begin Object Name="MaterialExpressionTextureSample_0"
+      Texture=Texture2D'"/Game/LowpolyStyle/Asia/Textures/T_Main.T_Main"'
+      MaterialExpressionEditorX=-400
+      MaterialExpressionEditorY=-240
+      MaterialExpressionGuid=A472EB3444BF3AB7CEC5CBBD7B72B483
+      Material=Material'"M_MainAsia"'
+   End Object
+   Begin Object Name="MaterialExpressionConstant_1"
+      R=0.678899
+      MaterialExpressionEditorX=-224
+      MaterialExpressionEditorY=176
+      MaterialExpressionGuid=62D5E86F474824A84C23A6A9ECBA3E1E
+      Material=Material'"M_MainAsia"'
+   End Object
+   Begin Object Name="MaterialExpressionConstant_0"
+      R=0.357798
+      MaterialExpressionEditorX=-288
+      MaterialExpressionEditorY=32
+      MaterialExpressionGuid=62D5E86F474824A84C23A6A9ECBA3E1E
+      Material=Material'"M_MainAsia"'
+   End Object
+   BaseColor=(Expression=MaterialExpressionTextureSample'"MaterialExpressionTextureSample_0"',Mask=1,MaskR=1,MaskG=1,MaskB=1)
+   Metallic=(Expression=MaterialExpressionConstant'"MaterialExpressionConstant_0"')
+   Roughness=(Expression=MaterialExpressionConstant'"MaterialExpressionConstant_1"')
+   bUsedWithStaticLighting=True
+   Expressions(0)=MaterialExpressionTextureSample'"MaterialExpressionTextureSample_0"'
+   Expressions(1)=MaterialExpressionConstant'"MaterialExpressionConstant_0"'
+   Expressions(2)=MaterialExpressionConstant'"MaterialExpressionConstant_1"'
+   bCanMaskedBeAssumedOpaque=True
+   StateId=A3EE0F1D4DEA67FB814915B9610228BE
+   CachedExpressionData=(ReferencedTextures=(Texture2D'"/Game/LowpolyStyle/Asia/Textures/T_Main.T_Main"'),QualityLevelsUsed=(False,False,False,False))
+   ReferencedTextureGuids(0)=253F1264433546B43412149985BB2FDC
+   ThumbnailInfo=SceneThumbnailInfoWithPrimitive'"SceneThumbnailInfoWithPrimitive_0"'
+   LightingGuid=9E6DD31A42298EDEDE62D4B318511127
+End Object

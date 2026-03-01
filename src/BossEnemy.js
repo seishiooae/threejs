@@ -62,10 +62,10 @@ export class BossEnemy {
         this.lightningCooldown = 0; // Cooldown for lightning attack
         // Setup initial waypoints relative to spawn position (a square around the treasure)
         this.waypoints = [
-            new THREE.Vector3(position.x - 4, 0, position.z - 4),
-            new THREE.Vector3(position.x + 4, 0, position.z - 4),
-            new THREE.Vector3(position.x + 4, 0, position.z + 4),
-            new THREE.Vector3(position.x - 4, 0, position.z + 4)
+            new THREE.Vector3(position.x - 12, 0, position.z - 12),
+            new THREE.Vector3(position.x + 12, 0, position.z - 12),
+            new THREE.Vector3(position.x + 12, 0, position.z + 12),
+            new THREE.Vector3(position.x - 12, 0, position.z + 12)
         ];
         this.currentWaypointIndex = 0;
 
