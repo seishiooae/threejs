@@ -250,20 +250,27 @@ export class Enemy {
         if (!this.modelWrapper) return;
         this.modelWrapper.traverse((child) => {
             if (child.isMesh && child.material) {
-                // Save original color permanently so rapid fire doesn't overwrite it with white
-                if (!child.userData.origColor) {
-                    child.userData.origColor = child.material.color.getHex();
-                }
-                child.material.color.setHex(0xffffff); // Flash white
+                const materials = Array.isArray(child.material) ? child.material : [child.material];
+                materials.forEach(mat => {
+                    if (!mat || !mat.color) return;
 
-                // Clear any existing timeout to prevent flickering
-                if (child.userData.flashTimeout) clearTimeout(child.userData.flashTimeout);
+                    if (!mat.userData) mat.userData = {};
 
-                child.userData.flashTimeout = setTimeout(() => {
-                    if (child && child.material && child.userData.origColor) {
-                        child.material.color.setHex(child.userData.origColor);
+                    // Save original color permanently so rapid fire doesn't overwrite it with white
+                    if (!mat.userData.origColor) {
+                        mat.userData.origColor = mat.color.getHex();
                     }
-                }, 100);
+                    mat.color.setHex(0xffffff); // Flash white
+
+                    // Clear any existing timeout to prevent flickering
+                    if (mat.userData.flashTimeout) clearTimeout(mat.userData.flashTimeout);
+
+                    mat.userData.flashTimeout = setTimeout(() => {
+                        if (mat && mat.color && mat.userData.origColor) {
+                            mat.color.setHex(mat.userData.origColor);
+                        }
+                    }, 100);
+                });
             }
         });
     }
