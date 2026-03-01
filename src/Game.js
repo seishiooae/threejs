@@ -80,7 +80,7 @@ export class Game {
             let loadedCount = 0;
             const checkDone = () => {
                 loadedCount++;
-                if (loadedCount >= 6) resolve(); // Added roar and treasure
+                if (loadedCount >= 7) resolve(); // Increased to 7 for FireBase and other assets
             };
 
             console.log('[Game] Loading centralized enemy assets...');
@@ -139,6 +139,15 @@ export class Game {
                 checkDone();
             });
 
+            // 6. Load FireBase FBX
+            fbxLoader.load('/models/enemy/SM_FireBase.FBX', (object) => {
+                this.enemyAssets.fireBaseModel = object;
+                checkDone();
+            }, undefined, (err) => {
+                console.error('[Game] Failed to load FireBase FBX:', err);
+                checkDone();
+            });
+
             // 3. Load Texture
             tgaLoader.load('/models/enemy/Kongou999.TGA', (texture) => {
                 this.enemyAssets.texture = texture;
@@ -177,20 +186,24 @@ export class Game {
         if (this.enemyAssets.treasureModel) {
             this.treasureObj = SkeletonUtils.clone(this.enemyAssets.treasureModel);
             this.treasureObj.position.copy(centerPos);
-            this.treasureObj.position.y = 8; // Slightly higher than the 3x scaled boss
+            // Treasure scaling (model is likely huge). Let's try 0.01 first. 
+            // The user said they couldn't see it, which means it was probably enveloping the whole map.
+            this.treasureObj.scale.set(0.01, 0.01, 0.01);
+            this.treasureObj.position.y = 2.0;
 
             // Adjust materials if needed
             this.treasureObj.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
-                    // Give it a glowing golden look
-                    child.material = new THREE.MeshStandardMaterial({
-                        color: 0xffd700,
-                        emissive: 0xaa6600,
-                        emissiveIntensity: 0.5,
-                        metalness: 1.0,
-                        roughness: 0.2
-                    });
+                    if (child.material) {
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0xffd700,
+                            emissive: 0xaa6600,
+                            emissiveIntensity: 0.5,
+                            metalness: 1.0,
+                            roughness: 0.2
+                        });
+                    }
                 }
             });
             this.scene.add(this.treasureObj);
@@ -199,6 +212,28 @@ export class Game {
             const treasureLight = new THREE.PointLight(0xffa500, 10, 15);
             treasureLight.position.copy(this.treasureObj.position);
             this.scene.add(treasureLight);
+        }
+
+        // Add 4 FireBases around the Boss Patrol route (corners are at +/- 4)
+        if (this.enemyAssets.fireBaseModel) {
+            const fireBasePositions = [
+                new THREE.Vector3(centerPos.x - 5, 0, centerPos.z - 5),
+                new THREE.Vector3(centerPos.x + 5, 0, centerPos.z - 5),
+                new THREE.Vector3(centerPos.x + 5, 0, centerPos.z + 5),
+                new THREE.Vector3(centerPos.x - 5, 0, centerPos.z + 5)
+            ];
+
+            fireBasePositions.forEach(pos => {
+                const fireBase = SkeletonUtils.clone(this.enemyAssets.fireBaseModel);
+                // Scale to player size. The user requested "サイズはプレイヤーと同じにしてください"
+                const scale = 0.000185;
+                fireBase.scale.set(scale, scale, scale);
+                // The geometry might need rotation depending on the FBX orientation
+                fireBase.rotation.x = -Math.PI / 2;
+
+                fireBase.position.copy(pos);
+                this.scene.add(fireBase);
+            });
         }
     }
 
