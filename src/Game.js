@@ -190,16 +190,18 @@ export class Game {
             // The user said they couldn't see it, which means it was probably enveloping the whole map.
             // Update: User requested 1/5th of 0.00033 = 0.000066
             this.treasureObj.scale.set(0.000066, 0.000066, 0.000066);
-            // User requested height to be higher than Boss's head. Boss is scaled 3x (approx 6 units tall).
-            this.treasureObj.position.y = 12.0;
+            // User requested height to be matches giant enemy height
+            this.treasureObj.position.y = 6.0;
 
             // Adjust materials and hide collision meshes
             this.treasureObj.traverse((child) => {
                 if (child.isMesh) {
-                    // Hide Unreal Engine collision capsules
+                    // Hide Unreal Engine collision capsules more aggressively
                     const name = child.name.toLowerCase();
-                    if (name.includes('collision') || name.includes('capsule')) {
+                    if (name.includes('collision') || name.includes('capsule') || name.includes('ucx') || name.includes('cylinder')) {
                         child.visible = false;
+                        child.material.transparent = true;
+                        child.material.opacity = 0;
                         return;
                     }
 
@@ -234,8 +236,9 @@ export class Game {
 
             fireBasePositions.forEach(pos => {
                 const fireBase = SkeletonUtils.clone(this.enemyAssets.fireBaseModel);
-                // Scale to player size
-                const scale = 0.000185;
+                // The previous scale (0.000185) likely made it microscopic. 
+                // Let's try 0.01 first to see if it appears.
+                const scale = 0.01;
                 fireBase.scale.set(scale, scale, scale);
                 // Models exported from UE often need this rotation
                 fireBase.rotation.x = -Math.PI / 2;
@@ -243,6 +246,9 @@ export class Game {
                 // Ensure it has a material so it's not invisible
                 fireBase.traverse((child) => {
                     if (child.isMesh) {
+                        // Ensure visibility and scale
+                        child.visible = true;
+
                         child.castShadow = true;
                         child.receiveShadow = true;
                         // Give it a generic metal look if no texture is loaded
