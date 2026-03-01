@@ -183,10 +183,10 @@ export class VFXManager {
 
             // Random target point around the treasure
             const angle = Math.random() * Math.PI * 2;
-            const radius = 0.1 + Math.random() * 0.15; // Even shorter branches (0.1 - 0.25 units)
+            const radius = 0.3 + Math.random() * 0.4; // Slightly further in to make it look internal
             const targetPos = new THREE.Vector3(
                 centerPos.x + Math.cos(angle) * radius,
-                centerPos.y + (Math.random() - 0.5) * 0.5, // Tightly clustered vertically
+                centerPos.y + 0.5 + Math.random(), // Keep it strictly ABOVE the ground (treasure is at y=6)
                 centerPos.z + Math.sin(angle) * radius
             );
 
@@ -199,16 +199,16 @@ export class VFXManager {
             // Strike from treasure to the generated target point
             bolt.strike(targetPos, centerPos);
 
-            // Short life span
-            bolt.maxLifetime = 0.15 + (Math.random() * 0.15);
+            // Longer life span to make them visible longer
+            bolt.maxLifetime = 0.2 + (Math.random() * 0.2);
 
-            // Fast generation (more dense zigzags)
-            setTimeout(spawnArc, 50 + Math.random() * 100);
+            // Slightly denser than before, but not super fast
+            setTimeout(spawnArc, 200 + Math.random() * 300);
         };
 
-        // Start 2 arcing processes for higher density
+        // Start 2 arcing processes for higher density than the 1 from before
         spawnArc();
-        setTimeout(spawnArc, 50);
+        setTimeout(spawnArc, 150);
     }
 
     /** Call every frame */
