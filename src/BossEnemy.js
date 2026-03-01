@@ -61,12 +61,12 @@ export class BossEnemy {
 
         // Boss specific
         this.lightningCooldown = 0; // Cooldown for lightning attack
-        // Patrol waypoints (Raised to Y=1 to sit on top of the new patrol platform)
+        // Patrol waypoints (Raised to Y=2 to sit on top of the new 2m patrol platform)
         this.waypoints = [
-            new THREE.Vector3(position.x - 4, 1.0, position.z - 4),
-            new THREE.Vector3(position.x + 4, 1.0, position.z - 4),
-            new THREE.Vector3(position.x + 4, 1.0, position.z + 4),
-            new THREE.Vector3(position.x - 4, 1.0, position.z + 4)
+            new THREE.Vector3(position.x - 4, 2.0, position.z - 4),
+            new THREE.Vector3(position.x + 4, 2.0, position.z - 4),
+            new THREE.Vector3(position.x + 4, 2.0, position.z + 4),
+            new THREE.Vector3(position.x - 4, 2.0, position.z + 4)
         ];
         this.currentWaypointIndex = 0;
 
@@ -126,12 +126,12 @@ export class BossEnemy {
         // Auto-center feet to Ground or Platform
         this.modelWrapper.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(this.modelWrapper);
-        // We add the absolute value of the lowest point to shift the model up so feet sit on Y=1.0 (Platform Surface).
+        // We add the absolute value of the lowest point to shift the model up so feet sit on Y=2.0 (Platform Surface).
         // The Boss 3D model's hands hang lower than its feet in T-pose, so we subtract 0.5 to keep the feet planted.
         if (box.min.y < 0) {
-            this.modelWrapper.position.y = Math.abs(box.min.y) - 0.5 + 1.0;
+            this.modelWrapper.position.y = Math.abs(box.min.y) - 0.5 + 2.0;
         } else {
-            this.modelWrapper.position.y = -0.5 + 1.0;
+            this.modelWrapper.position.y = -0.5 + 2.0;
         }
 
         // Apply hostile dark material and TGA Texture
@@ -310,9 +310,16 @@ export class BossEnemy {
         let targetId = null;
         let targetPos = null;
 
+        // Custom 2D Distance Check to ignore height differences (Platform vs Ground)
+        const get2DDistance = (posA, posB) => {
+            const dx = posA.x - posB.x;
+            const dz = posA.z - posB.z;
+            return Math.sqrt(dx * dx + dz * dz);
+        };
+
         // Check local player
         if (this.game.player && !this.game.player.isDead) {
-            const dist = this.mesh.position.distanceTo(this.game.player.getPosition());
+            const dist = get2DDistance(this.mesh.position, this.game.player.getPosition());
             if (dist < minDistance && !this.game.player.isInvincible) {
                 minDistance = dist;
                 targetPos = this.game.player.getPosition();
@@ -324,10 +331,11 @@ export class BossEnemy {
         if (this.game.remotePlayers) {
             Object.values(this.game.remotePlayers).forEach(p => {
                 if (!p.isDead && p.mesh) {
-                    const dist = this.mesh.position.distanceTo(p.getPosition ? p.getPosition() : p.mesh.position);
+                    const pPos = p.getPosition ? p.getPosition() : p.mesh.position;
+                    const dist = get2DDistance(this.mesh.position, pPos);
                     if (dist < minDistance && !p.isInvincible) {
                         minDistance = dist;
-                        targetPos = p.getPosition ? p.getPosition() : p.mesh.position;
+                        targetPos = pPos;
                         targetId = p.id;
                     }
                 }

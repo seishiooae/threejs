@@ -191,13 +191,14 @@ export class Game {
         const boss = new BossEnemy(this, centerPos, "boss_1", this.enemyAssets);
         this.enemies.push(boss);
 
-        // Add Patrol Platform (Waypoints +/- 4, Platform +/- 5 for 1m extra width, 1m tall)
+        // Add Patrol Platform (Waypoints +/- 4, Platform +/- 5 for 1m extra width, 2m tall per request)
         const platformWidth = 10;
         const platformDepth = 10;
-        const platformHeight = 1.0;
+        const platformHeight = 2.0;
         const platformGeo = new THREE.BoxGeometry(platformWidth, platformHeight, platformDepth);
-        // Using a built-in crate or dark material
-        const platformMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.9, metalness: 0.2 });
+
+        // Color changed to gray (nezumi-iro) per user request
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.9, metalness: 0.2 });
         const platformMesh = new THREE.Mesh(platformGeo, platformMat);
 
         // Position it under the center Pos. Y is normally 0 for ground, so we center Y at platformHeight/2
@@ -263,8 +264,8 @@ export class Game {
         if (this.enemyAssets.fireBaseModel) {
             // Platform corners are at +/- 5 from center
             const platformOffset = 5.0;
-            // The platform surface is at Y = 1.0 (height is 1.0)
-            const platformSurfaceY = 1.0;
+            // The platform surface is at Y = 2.0 (height is 2.0)
+            const platformSurfaceY = 2.0;
 
             const fireBasePositions = [
                 new THREE.Vector3(centerPos.x - platformOffset, platformSurfaceY, centerPos.z - platformOffset),

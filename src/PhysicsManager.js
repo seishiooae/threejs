@@ -53,6 +53,24 @@ export class PhysicsManager {
     }
 
     /**
+     * 指定された位置とサイズで静的な衝突ボックス（壁・床など）を追加する
+     */
+    addStaticBox(position, width, height, depth) {
+        if (!this.initialized || !this.world) return;
+
+        const bodyDesc = RAPIER.RigidBodyDesc.fixed()
+            .setTranslation(position.x, position.y, position.z);
+        const body = this.world.createRigidBody(bodyDesc);
+
+        // Rapier takes half-extents (hx, hy, hz) for cuboids
+        const colliderDesc = RAPIER.ColliderDesc.cuboid(width / 2, height / 2, depth / 2);
+        this.world.createCollider(colliderDesc, body);
+
+        console.log(`[PhysicsManager] Added Static Box at ${position.x}, ${position.y}, ${position.z} measuring ${width}x${height}x${depth}`);
+        return body;
+    }
+
+    /**
      * プレイヤー死亡時にラグドールを生成（単一カプセルボディ方式）
      * カプセルが地面に倒れ、メッシュが物理ボディに追従する
      */
