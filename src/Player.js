@@ -1746,13 +1746,15 @@ export class Player {
             }
         }
 
-        // OVERRIDE: If hit, play flinch on upper body but keep legs walking if moving
+        // OVERRIDE: If hit, play flinch on upper body but keep legs animating
         if (isHitFlinching) {
             Object.keys(targets).forEach(k => { targets[k] = 0; });
             targets['Hit'] = 1.0;
-            // Keep legs walking during flinch so the player doesn't freeze mid-stride
+            // Always keep legs animating during flinch to avoid frozen lower body
             if (isMoving) {
                 targets['Run_Legs'] = 1.0;
+            } else {
+                targets['Idle_Legs'] = 1.0;
             }
         }
 
