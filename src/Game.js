@@ -489,6 +489,29 @@ export class Game {
         });
     }
 
+    handleLightningStrike(data) {
+        // Client-side: spawn lightning VFX at the position broadcast by the Host
+        if (!data || !data.pos) return;
+        const strikeTarget = new THREE.Vector3(data.pos.x, data.pos.y, data.pos.z);
+
+        if (this.vfx) {
+            this.vfx.spawnLightning(strikeTarget, (strikePos) => {
+                // Check if THIS client's local player is within blast radius
+                if (this.player) {
+                    const playerPos = this.player.getPosition();
+                    const distToStrike = playerPos.distanceTo(strikePos);
+                    if (distToStrike < 3.0) {
+                        if (this.player.takeLightningStrike) {
+                            this.player.takeLightningStrike();
+                        } else {
+                            this.player.takeDamage(50, new THREE.Vector3(0, 0, 0));
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     createRemotePlayer(id, state) {
         console.log(`[Game] Creating Remote Player: ${id} `, state);
         // FIXED: Constructor is (game, id, isLocal)

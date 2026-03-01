@@ -504,17 +504,23 @@ export class BossEnemy {
 
             const target = this.getClosestPlayer();
             if (target.position && this.game.vfx) {
-                // Strike at player's current position
-                this.game.vfx.spawnLightning(target.position, (strikePos) => {
-                    // This callback fires when the lightning actually hits (1 second later)
-                    // Check if player is still within blast radius (e.g., 3 meters)
+                const strikeTarget = target.position.clone();
+
+                // Broadcast lightning position to all Clients so they can spawn VFX too
+                if (this.game.networkManager) {
+                    this.game.networkManager.sendLightningStrike(strikeTarget);
+                }
+
+                // Strike at player's current position (Host sees VFX locally)
+                this.game.vfx.spawnLightning(strikeTarget, (strikePos) => {
+                    // This callback fires when the lightning actually hits
+                    // Check if HOST's local player is within blast radius (e.g., 3 meters)
                     const playerPos = this.game.player.getPosition();
                     const distToStrike = playerPos.distanceTo(strikePos);
                     if (distToStrike < 3.0) {
                         if (this.game.player.takeLightningStrike) {
                             this.game.player.takeLightningStrike();
                         } else {
-                            // Fallback damage if stun not implemented yet
                             this.game.player.takeDamage(50, new THREE.Vector3(0, 0, 0));
                         }
                     }

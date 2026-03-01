@@ -40,6 +40,13 @@ export class NetworkManager {
             }
         });
 
+        this.socket.on('lightningStrike', (data) => {
+            // Received lightning strike position from the Host
+            if (!this.isHost && this.game.handleLightningStrike) {
+                this.game.handleLightningStrike(data);
+            }
+        });
+
         this.socket.on('playerConnected', (data) => {
             if (data.id !== this.socket.id) {
                 this.addRemotePlayer(data.id, data.state);
@@ -134,6 +141,10 @@ export class NetworkManager {
 
     sendRagdollEnd() {
         this.socket.emit('ragdollEnd', {});
+    }
+
+    sendLightningStrike(position) {
+        this.socket.emit('lightningStrike', { pos: { x: position.x, y: position.y, z: position.z } });
     }
 
     addRemotePlayer(id, state) {

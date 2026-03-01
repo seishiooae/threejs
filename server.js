@@ -128,6 +128,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('enemyState', states);
   });
 
+  socket.on('lightningStrike', (data) => {
+    // Relay lightning strike from Host to all other clients
+    socket.broadcast.emit('lightningStrike', data);
+  });
+
   socket.on('ragdollEnd', (data) => {
     // Notify all other clients that ragdoll has ended
     socket.broadcast.emit('ragdollEnd', { id: socket.id });
