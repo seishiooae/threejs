@@ -212,6 +212,40 @@ export class Game {
             this.physicsManager.addStaticBox(platformMesh.position, platformWidth, platformHeight, platformDepth);
         }
 
+        // Add Stone Steps to climb the platform (Placed on the South/+Z side)
+        const numSteps = 3;
+        const stepWidth = 4.0;
+        const stepDepth = 1.5;
+        const stepHeightIncrement = platformHeight / numSteps;
+
+        const stairsGroup = new THREE.Group();
+        const stepMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 1.0, metalness: 0.1 }); // Stone gray
+
+        for (let i = 0; i < numSteps; i++) {
+            const currentHeight = stepHeightIncrement * (i + 1);
+            const stepGeo = new THREE.BoxGeometry(stepWidth, currentHeight, stepDepth);
+            const stepMesh = new THREE.Mesh(stepGeo, stepMat);
+
+            // Position: 
+            // - X: Center of platform
+            // - Y: Resting on the floor, so Y center is currentHeight / 2
+            // - Z: Platform edge + (depth of all remaining steps)
+            // The platform is 12 deep, so edge is at +6.
+            // Step 0 is furthest out, Step 2 is right against the platform.
+            const zOffset = (platformDepth / 2) + (stepDepth / 2) + ((numSteps - 1 - i) * stepDepth);
+            stepMesh.position.set(centerPos.x, currentHeight / 2, centerPos.z + zOffset);
+
+            stepMesh.castShadow = true;
+            stepMesh.receiveShadow = true;
+            stairsGroup.add(stepMesh);
+
+            // Add physics collider for this specific step
+            if (this.physicsManager) {
+                this.physicsManager.addStaticBox(stepMesh.position, stepWidth, currentHeight, stepDepth);
+            }
+        }
+        this.scene.add(stairsGroup);
+
         // Add Rotating Treasure above Boss
         if (this.enemyAssets.treasureModel) {
             this.treasureObj = SkeletonUtils.clone(this.enemyAssets.treasureModel);
