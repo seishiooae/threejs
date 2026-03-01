@@ -191,25 +191,16 @@ export class VFXManager {
                 centerPos.z + Math.sin(angle) * radius
             );
 
-            // Create a fast, thin, purely visual bolt without warning circles or damage
-            const bolt = new LightningBolt(this.scene, this.flashLight);
-            // We want it to strike from the treasure to the target
-            bolt.mesh.position.copy(centerPos);
-            // Bolt visually strikes downwards towards ground by default, so we point it
-            // Adjust bolt logic to strike to the specific vector 
-            bolt.mesh.lookAt(targetPos);
-            bolt.mesh.rotateX(Math.PI / 2); // Correct orientation for cylinder
-
-            // Make them very quick and thin
-            bolt.mesh.scale.set(0.3, targetPos.distanceTo(centerPos), 0.3);
+            // Create a fast, thin, purely visual bolt
+            const bolt = new LightningBolt(this.scene, null); // No flashlight
 
             this.activeLightning.push(bolt);
 
-            // Force it active and simulate the flash manually without the warning ring delay
-            bolt.active = true;
-            bolt.life = 0;
+            // Strike from treasure to the generated target point
+            bolt.strike(targetPos, centerPos);
+
             // Shorter life span for rapid bolts
-            bolt.maxLife = 0.5 + Math.random() * 0.5;
+            bolt.maxLifetime = 0.15 + (Math.random() * 0.1);
 
             // Schedule the next bolt randomly between 50ms and 500ms
             setTimeout(spawnArc, 50 + Math.random() * 450);
@@ -659,10 +650,10 @@ class LightningBolt {
         this.impactGroup.add(glow);
     }
 
-    strike(targetPos) {
+    strike(targetPos, startPos = null) {
         this.cleanup();
         this.strikePos.copy(targetPos);
-        const skyPos = new THREE.Vector3(
+        this.sourcePos = startPos || new THREE.Vector3(
             targetPos.x + (Math.random() - 0.5) * 6,
             40 + Math.random() * 15,
             targetPos.z + (Math.random() - 0.5) * 6
@@ -670,7 +661,7 @@ class LightningBolt {
 
         this.active = true;
         this.lifetime = 0;
-        this._buildBolt(skyPos, targetPos);
+        this._buildBolt(this.sourcePos, targetPos);
         this._createImpactSparks(targetPos);
 
         if (this.flashLight) {
@@ -718,12 +709,13 @@ class LightningBolt {
         this.bolts = [];
         this.glowBolts = [];
 
-        const skyPos = new THREE.Vector3(
+        // Re-use sourcePos so custom starting points don't snap to the sky
+        const flickerSource = this.sourcePos ? this.sourcePos.clone() : new THREE.Vector3(
             this.strikePos.x + (Math.random() - 0.5) * 4,
             40 + Math.random() * 15,
             this.strikePos.z + (Math.random() - 0.5) * 4
         );
-        this._buildBolt(skyPos, this.strikePos);
+        this._buildBolt(flickerSource, this.strikePos);
     }
 
     update(delta) {
