@@ -1517,6 +1517,29 @@ export class Player {
             }
         }
 
+        // --- Vertical Terrain Snapping ---
+        // Basic implementation for steps and platforms, as player doesn't use Rapier physics
+        let targetGroundY = 0; // Default ground level
+        if (this.game.terrainBounds) {
+            const px = this.pivot.position.x;
+            const pz = this.pivot.position.z;
+            for (const bound of this.game.terrainBounds) {
+                // Check if player XZ is within this bound's XZ limits
+                if (px >= bound.minX && px <= bound.maxX && pz >= bound.minZ && pz <= bound.maxZ) {
+                    // Find the highest overlapping bounded surface
+                    if (bound.height > targetGroundY) {
+                        targetGroundY = bound.height;
+                    }
+                }
+            }
+        }
+
+        // Target Y for pivot is groundY + 1.6 (camera/eye height)
+        const targetPivotY = targetGroundY + 1.6;
+
+        // Smoothly interpolate to new height (climbing stairs effect)
+        this.pivot.position.y += (targetPivotY - this.pivot.position.y) * 10.0 * delta;
+
         this.syncVisuals(delta, isFiring);
     }
 

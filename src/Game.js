@@ -213,13 +213,13 @@ export class Game {
         }
 
         // Add Stone Steps to climb the platform (Placed on the South/+Z side)
-        const numSteps = 3;
+        const numSteps = 5;
         const stepWidth = 4.0;
-        const stepDepth = 1.5;
+        const stepDepth = 1.0; // 5 steps x 1m deep = 5m total run
         const stepHeightIncrement = platformHeight / numSteps;
 
         const stairsGroup = new THREE.Group();
-        const stepMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 1.0, metalness: 0.1 }); // Stone gray
+        const stepMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1.0, metalness: 0.1 }); // White
 
         for (let i = 0; i < numSteps; i++) {
             const currentHeight = stepHeightIncrement * (i + 1);
@@ -243,7 +243,28 @@ export class Game {
             if (this.physicsManager) {
                 this.physicsManager.addStaticBox(stepMesh.position, stepWidth, currentHeight, stepDepth);
             }
+
+            // Register steps as terrain bounds for custom Player Y-elevation logic
+            if (!this.terrainBounds) this.terrainBounds = [];
+            this.terrainBounds.push({
+                minX: stepMesh.position.x - stepWidth / 2,
+                maxX: stepMesh.position.x + stepWidth / 2,
+                minZ: stepMesh.position.z - stepDepth / 2,
+                maxZ: stepMesh.position.z + stepDepth / 2,
+                height: currentHeight
+            });
         }
+
+        // Register the main platform for Player Y-elevation logic
+        if (!this.terrainBounds) this.terrainBounds = [];
+        this.terrainBounds.push({
+            minX: platformMesh.position.x - platformWidth / 2,
+            maxX: platformMesh.position.x + platformWidth / 2,
+            minZ: platformMesh.position.z - platformDepth / 2,
+            maxZ: platformMesh.position.z + platformDepth / 2,
+            height: platformHeight
+        });
+
         this.scene.add(stairsGroup);
 
         // Add Rotating Treasure above Boss
