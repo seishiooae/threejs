@@ -403,7 +403,7 @@ export class BossEnemy {
                     roarSnd.play().catch(e => console.warn(e));
                 } catch (e) { }
             } else if (newState === 'LIGHTNING_ATTACK') {
-                this.setAnimationAction('Attack'); // Assuming 'Attack' animation for lightning
+                this.setAnimationAction('Roar'); // Boss roars during lightning attack, not punch
             } else if (newState === 'DEAD') {
                 this.setAnimationAction('Death');
             }
@@ -451,44 +451,6 @@ export class BossEnemy {
         this.currentAction = name;
     }
 
-    performMeleeAttack() {
-        console.log(`[Enemy ${this.id}] Performing Melee Attack!`);
-
-        // Wait for the animation to hit its swiping apex (faster due to timeScale=2.0)
-        setTimeout(() => {
-            if (this.isDead) return;
-
-            const target = this.getClosestPlayer();
-
-            // Check if player is still in range (needs to be close to get actually hit)
-            // Increased to 1.8 to ensure hits connect from the further stopping distance
-            if (target.position && target.distance < 1.8) {
-                console.log(`[Enemy ${this.id}] MELEE CONNECTED! distance: ${target.distance.toFixed(1)}`);
-
-                // Play programmatic hit sound
-                this.playHitSound();
-
-                const direction = new THREE.Vector3().subVectors(target.position, this.mesh.position).normalize();
-
-                if (target.id === 'local') {
-                    this.game.player.takeDamage(1000, direction); // Instant kill
-                } else if (target.id && this.game.networkManager) {
-                    this.game.networkManager.sendHit(target.id, 1000, direction);
-                    if (this.game.remotePlayers[target.id]) {
-                        this.game.remotePlayers[target.id].takeDamage(1000, direction);
-                    }
-                }
-            }
-
-            // After attack, unconditionally clear the state so the AI doesn't freeze
-            // The next game tick's `updateAI` will immediately pick a new state (CHASE or WALK)
-            if (!this.isDead) {
-                this.state = null;
-                this.setState('CHASE'); // Force transition to trigger Walk animation reset!
-            }
-
-        }, 1100); // 1100ms delay to sync with slower (1.1x) animation swing
-    }
 
     updatePatrol(delta) {
         const targetPos = this.waypoints[this.currentWaypointIndex];
