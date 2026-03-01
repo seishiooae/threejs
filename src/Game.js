@@ -234,8 +234,8 @@ export class Game {
             this.scene.add(treasureLight);
 
             // Add continuous lightning striking out from treasure
-            if (this.vfxManager) {
-                this.vfxManager.continuousTreasureLightning(this.treasureObj.position);
+            if (this.vfx) {
+                this.vfx.continuousTreasureLightning(this.treasureObj.position);
             }
         }
 
@@ -281,10 +281,10 @@ export class Game {
                 this.scene.add(fireBase);
 
                 // Add continuous fire effect on top of the base
-                if (this.vfxManager) {
+                if (this.vfx) {
                     const firePos = pos.clone();
                     firePos.y += 2.0; // Place fire slightly above the base model
-                    this.vfxManager.continuousFire(firePos);
+                    this.vfx.continuousFire(firePos);
                 }
             });
         }
@@ -729,7 +729,9 @@ export class Game {
 
             // Update treasure rotation
             if (this.treasureObj) {
-                this.treasureObj.rotation.y += delta * 1.0; // Slowly rotate
+                this.treasureObj.rotation.y += delta * 1.0; // Slowly rotate horizontally
+                this.treasureObj.rotation.x += delta * 0.5; // Rotate diagonally
+                this.treasureObj.rotation.z += delta * 0.3; // Rotate diagonally
             }
 
             if (this.player.camera) {
