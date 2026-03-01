@@ -203,13 +203,13 @@ export class VFXManager {
             // Longer life span to make them visible longer
             bolt.maxLifetime = 0.2 + (Math.random() * 0.2);
 
-            // Slightly denser than before, but not super fast
-            setTimeout(spawnArc, 200 + Math.random() * 300);
+            // Much slower generation (distinct, relaxed zigzags)
+            setTimeout(spawnArc, 600 + Math.random() * 600);
         };
 
         // Start 2 arcing processes for higher density than the 1 from before
         spawnArc();
-        setTimeout(spawnArc, 150);
+        setTimeout(spawnArc, 300);
     }
 
     /** Call every frame */
