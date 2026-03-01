@@ -484,15 +484,14 @@ export class BossEnemy {
         let normalizedDiff = Math.atan2(Math.sin(diff), Math.cos(diff));
         this.mesh.rotation.y += Math.sign(normalizedDiff) * Math.min(Math.abs(normalizedDiff), this.TURN_SPEED * delta);
 
-        // Move forward ONLY if mostly facing target so it sharply turns the corners 
-        // instead of walking in wide circles falling off the platform
-        if (Math.abs(normalizedDiff) < 0.5) {
-            const moveVec = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
-            moveVec.normalize().multiplyScalar(this.WALK_SPEED * delta);
+        // Move forward continuously but slow down during sharp turns
+        // This prevents the Boss from getting stuck in place if the rotation math struggles to align perfectly
+        const alignmentPenalty = Math.max(0.2, 1.0 - (Math.abs(normalizedDiff) / Math.PI));
+        const moveVec = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
+        moveVec.normalize().multiplyScalar(this.WALK_SPEED * alignmentPenalty * delta);
 
-            this.mesh.position.add(moveVec);
-            this.mesh.position.y = 0; // Lock Y
-        }
+        this.mesh.position.add(moveVec);
+        this.mesh.position.y = 0; // Lock Y
     }
 
     updateAlert(delta) {
