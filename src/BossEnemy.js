@@ -551,8 +551,44 @@ export class BossEnemy {
     _showHealthBar() {
         const idx = this._getEnemyIndex();
         if (idx < 0) return;
-        const el = document.getElementById(`enemy-hp-${idx}`);
-        if (!el) return;
+
+        let el = document.getElementById(`enemy-hp-${idx}`);
+
+        // Dynamically create the health bar if it doesn't exist in the HTML (e.g. Boss is enemy #3+)
+        if (!el) {
+            const container = document.getElementById('enemy-hp-container');
+            if (container) {
+                el = document.createElement('div');
+                el.className = 'enemy-hp-bar';
+                el.id = `enemy-hp-${idx}`;
+                el.style.display = 'none';
+
+                // Add Boss styling (e.g. bigger text or custom label)
+                el.innerHTML = `
+                  <div class="enemy-hp-label" style="color: #ffaa00; font-weight: bold; text-shadow: 0 0 5px red;">GIANT BOSS</div>
+                  <div class="enemy-hp-track" style="height: 25px; border: 2px solid gold;">
+                    <div class="enemy-hp-fill"></div>
+                    <span class="enemy-hp-text" style="font-size: 16px;">100%</span>
+                  </div>
+                `;
+                container.appendChild(el);
+            } else {
+                return;
+            }
+        } else {
+            // Apply Boss Label to existing element just in case it reused an old one
+            const label = el.querySelector('.enemy-hp-label');
+            if (label) {
+                label.textContent = "GIANT BOSS";
+                label.style.color = "#ffaa00";
+                label.style.textShadow = "0 0 5px red";
+            }
+            const track = el.querySelector('.enemy-hp-track');
+            if (track) {
+                track.style.height = '25px';
+                track.style.border = '2px solid gold';
+            }
+        }
 
         const pct = Math.max(0, (this.health / this.maxHealth) * 100);
 
@@ -581,7 +617,11 @@ export class BossEnemy {
         const idx = this._getEnemyIndex();
         if (idx < 0) return;
         const el = document.getElementById(`enemy-hp-${idx}`);
-        if (el) el.style.display = 'none';
+        if (el) {
+            el.style.display = 'none';
+            // Optional: remove it from DOM entirely if dynamically created
+            // el.remove(); 
+        }
         this.healthBarVisible = false;
     }
 
